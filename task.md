@@ -28,20 +28,20 @@
 | Task ID | Objective | Key Files | Status | Assignee |
 |---|---|---|---|---|
 | T0.1 | Repo + env | `pyproject.toml`, `README.md` | ✅ DONE | - |
-| T0.2 | Config schema | `config/system.yaml` | ⬜ TODO | - |
-| T0.3 | AoI contract | `common/contracts/aoi.py` | ⬜ TODO | - |
-| T0.4 | State contract | `common/contracts/state_spec.py` | ⬜ TODO | - |
-| T0.5 | Packet contract | `common/contracts/packets.py` | ⬜ TODO | - |
-| T0.6 | Logging contract | `common/contracts/log_schema.py` | ⬜ TODO | - |
-| T0.7 | Provenance | `common/provenance.py` | ⬜ TODO | - |
-| T0.8 | Contract freeze review | `docs/CONTRACTS.md` | ⬜ TODO | Guide + Team |
+| T0.2 | Config schema | `config/system.yaml` | ✅ DONE | - |
+| T0.3 | AoI contract | `common/contracts/aoi.py` | ✅ DONE | - |
+| T0.4 | State contract | `common/contracts/state_spec.py` | ✅ DONE | - |
+| T0.5 | Packet contract | `common/contracts/packets.py` | ✅ DONE | - |
+| T0.6 | Logging contract | `common/contracts/log_schema.py` | ✅ DONE | - |
+| T0.7 | Provenance | `common/provenance.py` | ✅ DONE | - |
+| T0.8 | Contract freeze review | `docs/CONTRACTS.md` | ✅ DONE | Guide + Team |
 
 ### Acceptance Criteria
-- [ ] `pip install -e .` succeeds on laptop and Pi OS Lite 64-bit
-- [ ] Exactly ONE AoI implementation exists
-- [ ] `StateSpec` hash is emitted and stored
-- [ ] Golden-bytes packet fixture passes
-- [ ] `docs/CONTRACTS.md` signed; tagged `v0-contracts`
+- [x] `pip install -e .` succeeds on laptop and Pi OS Lite 64-bit
+- [x] Exactly ONE AoI implementation exists
+- [x] `StateSpec` hash is emitted and stored
+- [x] Golden-bytes packet fixture passes
+- [x] `docs/CONTRACTS.md` signed; tagged `v0-contracts`
 
 ## P1: Hardware Timing Characterisation Spike
 | Task ID | Objective | Key Files | Status | Assignee |

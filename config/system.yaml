@@ -1,0 +1,55 @@
+system:
+  n_nodes: 4
+  node_classes: ["urgent", "urgent", "important", "routine"]
+
+scheduler:
+  # Criticality weights
+  weights:
+    urgent: 10
+    important: 3
+    routine: 1
+  # DUI Metric parameters
+  dui_alpha: 2.0
+  dui_lambda: 1.5
+  dui_beta: 0.5
+  # Soft AoI thresholds in ms
+  thresholds:
+    urgent: 200
+    important: 500
+    routine: 1000
+  queue_discipline: "lcfs"
+  queue_size: 1
+  heartbeat_period_s: 2.0
+  n_degraded: 3
+  n_fail: 5
+  shield_ceilings_s:
+    urgent: 2.0
+    important: 6.0
+    routine: 20.0
+  run_duration_s: 300
+  runs_per_condition: 10
+
+rl:
+  gamma: 0.95
+  learning_rate: 0.001
+  buffer_size: 100000
+  batch_size: 64
+  target_update_interval: 1000
+  eps_start: 1.0
+  eps_end: 0.05
+  eps_fraction: 0.30
+  total_timesteps: 500000
+  net_arch: [64, 64]
+  lambda_energy: 0.0
+  lambda_waste: 0.0
+  episode_length: 1000
+  train_seeds: [0, 1, 2, 3, 4]
+  eval_seeds: [100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119]
+
+network:
+  wifi_ps_mode: "NONE"
+  udp_port_uplink: 5005
+  udp_port_grant: 5006
+  so_rcvbuf: 262144
+  slot_overrun_budget: 0.20
+  log_queue_size: 10000
