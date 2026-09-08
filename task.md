@@ -71,6 +71,7 @@
 | T2.5 | Replay mode | `sim/replay.py` | 🔴 BLOCKED | - |
 | T2.6 | Validation harness | `sim/validate.py` | 🔴 BLOCKED | - |
 | T2.7 | Load calibration | `notebooks/02_load.ipynb` | 🔴 BLOCKED | - |
+| T2.8 | NS-3 review simulation (1-AP/4-STA, 802.11n grant-reply protocol, 5 baselines + shield, panel visualization) | `ns3-sim/` | ✅ DONE | - |
 
 ### Acceptance Criteria
 - [ ] Deterministic bitwise per seed
@@ -78,6 +79,7 @@
 - [ ] PDR/delay stats match P1
 - [ ] AoI resets to delivered-packet age
 - [ ] ≥10⁴ simulated slots/sec
+- [ ] `ns3-sim/` builds under `./ns3 build scratch/aoi-scheduler/aoi-scheduler-sim` and `validate_against_contracts.py` passes against `common/contracts/aoi.py` and `log_schema.py`
 
 ## P3: Baseline Schedulers and Evaluation Harness
 | Task ID | Objective | Key Files | Status | Assignee |

@@ -1,6 +1,6 @@
 import struct
 from dataclasses import dataclass
-from typing import Optional, bytes
+from typing import Tuple
 
 MAGIC_BYTES = 0xA01D
 VERSION = 1
