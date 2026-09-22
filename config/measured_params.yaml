@@ -1,0 +1,37 @@
+# PLACEHOLDER measured channel/timing parameters.
+#
+# Phase 1 (Hardware Timing Characterisation Spike) is blocked pending
+# physical ESP32 + Raspberry Pi hardware (task.md P1). Until that campaign
+# produces real fitted values, sim/channel.py runs against these
+# placeholders, which mirror the same logistic p_s(RSSI) and log-distance
+# shape used by ns3-sim/aoi-scheduler-sim.cc so the two simulators agree.
+#
+# Every value in this file MUST be replaced by T1.5's fit before any
+# reported result relies on it, and sim/validate.py exists specifically to
+# check simulated statistics against whatever this file eventually holds.
+
+channel:
+  # Log-distance path loss (matches ns3-sim's 2.4GHz free-space constants)
+  path_loss_exponent: 2.8
+  reference_distance_m: 1.0
+  reference_loss_db: 40.046
+
+  # Gauss-Markov shadowing (temporally correlated, F2.4): shadow[t] =
+  # rho * shadow[t-1] + sqrt(1 - rho^2) * N(0, sigma_db)
+  shadowing_sigma_db: 4.0
+  shadowing_correlation_rho: 0.9  # PLACEHOLDER -- fit from P1 RSSI autocorrelation
+
+  # Logistic delivery-success model: p_s(rssi) = 1 / (1 + exp(-(rssi - r50) / slope))
+  logistic_r50_dbm: -82.0
+  logistic_slope_db: 4.0
+
+  # Gilbert-Elliott burst-loss overlay (D1.2): a 2-state Markov chain that
+  # multiplies the logistic p_s while in the BAD state.
+  ge_prob_good_to_bad: 0.02
+  ge_prob_bad_to_good: 0.30
+  ge_bad_state_success_multiplier: 0.3
+
+timing:
+  slot_duration_s: 0.1  # PLACEHOLDER -- pending T1.6's P99+10ms decision
+  uplink_delay_median_s: 0.005  # PLACEHOLDER d_up_hat for compute_delivered_age
+  late_arrival_probability: 0.01  # PLACEHOLDER -- D1.1's 1% late-arrival budget

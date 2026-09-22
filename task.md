@@ -64,21 +64,23 @@
 ## P2: Simulation Core
 | Task ID | Objective | Key Files | Status | Assignee |
 |---|---|---|---|---|
-| T2.1 | Channel model | `sim/channel.py` | 🔴 BLOCKED | - |
-| T2.2 | Queue model | `sim/queue.py` | 🔴 BLOCKED | - |
-| T2.3 | AoI + energy accounting | `sim/metrics.py` | 🔴 BLOCKED | - |
-| T2.4 | Simulator core | `sim/network.py` | 🔴 BLOCKED | - |
-| T2.5 | Replay mode | `sim/replay.py` | 🔴 BLOCKED | - |
-| T2.6 | Validation harness | `sim/validate.py` | 🔴 BLOCKED | - |
-| T2.7 | Load calibration | `notebooks/02_load.ipynb` | 🔴 BLOCKED | - |
+| T2.1 | Channel model | `sim/channel.py` | ✅ DONE (params PLACEHOLDER pending P1) | - |
+| T2.2 | Queue model | `sim/queue.py` | ✅ DONE | - |
+| T2.3 | AoI + energy accounting | `sim/metrics.py` | ✅ DONE | - |
+| T2.4 | Simulator core | `sim/network.py` | ✅ DONE | - |
+| T2.5 | Replay mode | `sim/replay.py` | ✅ DONE | - |
+| T2.6 | Validation harness | `sim/validate.py` | ✅ DONE (self-consistency only until P1 supplies a real fit) | - |
+| T2.7 | Load calibration | `notebooks/02_load.ipynb` | 🔴 BLOCKED (needs real sweep/analysis, not just code) | - |
 | T2.8 | NS-3 review simulation (1-AP/4-STA, 802.11n grant-reply protocol, 5 baselines + shield, panel visualization) | `ns3-sim/` | ✅ DONE | - |
 
 ### Acceptance Criteria
-- [ ] Deterministic bitwise per seed
-- [ ] No global RNG
-- [ ] PDR/delay stats match P1
-- [ ] AoI resets to delivered-packet age
-- [ ] ≥10⁴ simulated slots/sec
+- [x] Deterministic bitwise per seed
+- [x] No global RNG
+- [ ] PDR/delay stats match P1 (blocked: P1 hasn't run; `sim/validate.py` currently checks self-consistency against its own placeholder config)
+- [x] AoI resets to delivered-packet age
+- [x] ≥10⁴ simulated slots/sec (measured ~50k/sec)
+
+**Note:** node placement (5/8/12/18m) under the current placeholder `measured_params.yaml` puts every node's RSSI well above the logistic curve's sensitive region (~-40 to -55 dBm vs. R50=-82 dBm), so simulated PDR is ~95-96% at all four distances with little channel-quality differentiation between nodes. This flattens any advantage Channel-Aware Greedy would show over Max-Weight in P3 until either T2.7's load calibration or real P1 RSSI data changes the operating point -- worth deciding deliberately rather than discovering it silently during baseline evaluation.
 - [ ] `ns3-sim/` builds under `./ns3 build scratch/aoi-scheduler/aoi-scheduler-sim` and `validate_against_contracts.py` passes against `common/contracts/aoi.py` and `log_schema.py`
 
 ## P3: Baseline Schedulers and Evaluation Harness
