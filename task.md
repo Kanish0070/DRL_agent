@@ -44,6 +44,11 @@
 - [x] `docs/CONTRACTS.md` signed; tagged `v0-contracts`
 
 ## P1: Hardware Timing Characterisation Spike
+*Raspberry Pi is currently unavailable; ESP32 boards are available. See
+`docs/P1_NS3_ESP32_DELAY_CHARACTERISATION.md` for the approved laptop+ESP32+NS3
+hybrid methodology that satisfies the acceptance criteria below without a Pi.
+`config/measured_params.yaml` is PLACEHOLDER until that campaign actually runs.*
+
 | Task ID | Objective | Key Files | Status | Assignee |
 |---|---|---|---|---|
 | T1.1 | Timing firmware | `firmware/spike_timing/` | 🔴 BLOCKED | - |
@@ -61,37 +66,27 @@
 - [ ] `T_slot` chosen by D1.1 rule
 - [ ] Confirmation campaign late-arrival rate ≤1%
 
-## P1′: No-Hardware Parameter Substitute (unblocks P2-P6 while P1 is blocked)
-*Not a replacement for P1 -- a provisional stand-in so downstream phases can produce real
-numbers now. See `docs/PARAM_PROVENANCE.md`. Every run is stamped `provenance.source` so
-results are always traceable to which track produced them (enables D11.1 later "for free").*
-
-| Task ID | Objective | Key Files | Status | Assignee |
-|---|---|---|---|---|
-| T1′.1 | Provisional channel/timing params (`r50_dbm`/`beta_db` reused from `ns3-sim`; RSSI levels, fading std-dev, slot duration stated as illustrative placeholders) | `config/measured_params.yaml` | ✅ DONE | - |
-| T1′.2 | Provenance documentation of every value's source | `docs/PARAM_PROVENANCE.md` | ✅ DONE | - |
-| T1′.3 | Automated ns-3 batch-run + curve-fit derivation (replaces T1′.1's hand-stated placeholders with values actually fit from `ns3-sim` output) | `tools/derive_params_from_sim.py` | 🔴 BLOCKED (needs ns-3 toolchain) | - |
-| T1′.4 | Literature-cited values for ESP32/Pi software-latency components ns-3 doesn't model | `docs/PARAM_PROVENANCE.md` | ⬜ TODO | - |
-
 ## P2: Simulation Core
 | Task ID | Objective | Key Files | Status | Assignee |
 |---|---|---|---|---|
-| T2.1 | Channel model | `sim/channel.py` | ✅ DONE (params provisional, see P1′) | - |
+| T2.1 | Channel model | `sim/channel.py` | ✅ DONE (params PLACEHOLDER pending P1) | - |
 | T2.2 | Queue model | `sim/queue.py` | ✅ DONE | - |
-| T2.3 | AoI + energy accounting | `common/metrics.py` (moved from `sim/metrics.py` per `criticality_metric_plan.md`'s reviewed design) | ✅ DONE | - |
+| T2.3 | AoI + energy accounting | `sim/metrics.py` (see also `common/metrics.py` for the DUI reward metric) | ✅ DONE | - |
 | T2.4 | Simulator core | `sim/network.py` | ✅ DONE | - |
-| T2.5 | Replay mode | `sim/replay.py` | 🔴 BLOCKED | - |
-| T2.6 | Validation harness | `sim/validate.py` | 🔴 BLOCKED | - |
-| T2.7 | Load calibration | `notebooks/02_load.ipynb` | 🔴 BLOCKED | - |
+| T2.5 | Replay mode | `sim/replay.py` | ✅ DONE | - |
+| T2.6 | Validation harness | `sim/validate.py` | ✅ DONE (self-consistency only until P1 supplies a real fit) | - |
+| T2.7 | Load calibration | `notebooks/02_load.ipynb` | 🔴 BLOCKED (needs real sweep/analysis, not just code) | - |
 | T2.8 | NS-3 review simulation (1-AP/4-STA, 802.11n grant-reply protocol, 5 baselines + shield, panel visualization) | `ns3-sim/` | ✅ DONE | - |
 
 ### Acceptance Criteria
-- [x] Deterministic bitwise per seed (`tests/test_network_simulator.py`, `tests/test_channel.py`)
-- [x] No global RNG (`ChannelModel`/`NetworkSimulator` take an explicit `np.random.Generator`)
-- [ ] PDR/delay stats match P1 -- not yet possible; P1 is blocked, so `sim/channel.py` currently runs on P1′'s provisional params, not measured ones
-- [x] AoI resets to delivered-packet age (`tests/test_network_simulator.py::test_aoi_resets_to_delivered_packet_age_on_successful_delivery`)
-- [x] ≥10⁴ simulated slots/sec (smoke-tested; real benchmark still pending)
+- [x] Deterministic bitwise per seed
+- [x] No global RNG
+- [ ] PDR/delay stats match P1 (blocked: P1 hasn't run; `sim/validate.py` currently checks self-consistency against its own placeholder config)
+- [x] AoI resets to delivered-packet age
+- [x] ≥10⁴ simulated slots/sec (measured ~50k/sec)
 - [ ] `ns3-sim/` builds under `./ns3 build scratch/aoi-scheduler/aoi-scheduler-sim` and `validate_against_contracts.py` passes against `common/contracts/aoi.py` and `log_schema.py`
+
+**Note:** node placement (5/8/12/18m) under the current placeholder `measured_params.yaml` puts every node's RSSI well above the logistic curve's sensitive region (~-40 to -55 dBm vs. R50=-82 dBm), so simulated PDR is ~95-96% at all four distances with little channel-quality differentiation between nodes. This flattens any advantage Channel-Aware Greedy would show over Max-Weight in P3 until either T2.7's load calibration or real P1 RSSI data changes the operating point -- worth deciding deliberately rather than discovering it silently during baseline evaluation.
 
 ## P3: Baseline Schedulers and Evaluation Harness
 | Task ID | Objective | Key Files | Status | Assignee |

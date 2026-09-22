@@ -11,18 +11,19 @@ from .contracts.state_spec import get_state_schema_hash
 
 def get_params_source() -> str:
     """
-    Returns the provenance.source tag of config/measured_params.yaml (e.g.
-    "hardware" once T1.1-T1.7 lands, or "ns3_derived_placeholder" for the
-    no-hardware substitute), so every run is traceable to which channel/
-    timing parameter set produced it. This is what makes the eventual
-    D11.1 sim-to-real gap comparison a filter over existing runs rather
-    than a rerun.
+    Reports whether config/measured_params.yaml is still the pre-P1
+    PLACEHOLDER file (see its header comment and
+    docs/P1_NS3_ESP32_DELAY_CHARACTERISATION.md) or a real fit, so every run
+    is traceable to which channel/timing parameter set produced it. This is
+    what will let the eventual D11.1 sim-to-real gap comparison filter
+    existing runs rather than needing a rerun, once T1.1-T1.7 lands a real
+    fit and this file is updated to say so.
     """
     try:
         params = load_measured_params()
     except FileNotFoundError:
         return "unknown"
-    return params.get("provenance", {}).get("source", "unknown")
+    return params.get("provenance", {}).get("source", "placeholder_pending_p1")
 
 def get_git_provenance() -> dict:
     """Returns the current git commit SHA and dirty state."""

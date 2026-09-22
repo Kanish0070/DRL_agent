@@ -57,11 +57,14 @@ def _validate_schema(config: dict):
 
 def load_measured_params(path: str | Path = "config/measured_params.yaml") -> dict:
     """
-    Loads and validates the channel/timing parameters produced by either the
-    real P1 hardware campaign or its P1' no-hardware substitute (see
-    docs/PARAM_PROVENANCE.md). Every consumer (sim/channel.py, common/provenance.py)
-    reads this file rather than the campaign that produced it, so the two
-    tracks stay interchangeable.
+    Loads and validates the channel/timing parameters produced by the real P1
+    hardware campaign (task.md T1.1-T1.7, currently blocked) -- see
+    docs/P1_NS3_ESP32_DELAY_CHARACTERISATION.md for the approved hybrid
+    NS3+ESP32 methodology, and this file's own header for which values are
+    still PLACEHOLDER in the meantime. Every consumer (sim/channel.py) reads
+    this file rather
+    than the campaign that produced it, so swapping a real fit in later
+    needs no code changes.
     """
     path = Path(path)
     if not path.exists():
@@ -77,22 +80,29 @@ def load_measured_params(path: str | Path = "config/measured_params.yaml") -> di
     return params
 
 def _validate_measured_params(params: dict):
-    """Validates the measured_params.yaml schema."""
+    """Validates the measured_params.yaml schema against what
+    sim.channel.ChannelParams.from_measured_params() and NetworkSim's
+    SimConfig.from_configs() actually read."""
     if "channel" not in params:
         raise ConfigValidationError("measured_params.yaml missing 'channel' section")
+    if "timing" not in params:
+        raise ConfigValidationError("measured_params.yaml missing 'timing' section")
 
     ch = params["channel"]
-    required = {"r50_dbm", "beta_db", "node_mean_rssi_dbm", "fading_std_db",
-                "t_slot_s", "sample_interval_s"}
-    missing = required - set(ch.keys())
-    if missing:
-        raise ConfigValidationError(f"measured_params.yaml 'channel' section missing: {missing}")
+    required_channel = {"path_loss_exponent", "reference_distance_m", "reference_loss_db",
+                         "shadowing_sigma_db", "shadowing_correlation_rho",
+                         "logistic_r50_dbm", "logistic_slope_db",
+                         "ge_prob_good_to_bad", "ge_prob_bad_to_good",
+                         "ge_bad_state_success_multiplier"}
+    missing_channel = required_channel - set(ch.keys())
+    if missing_channel:
+        raise ConfigValidationError(f"measured_params.yaml 'channel' section missing: {missing_channel}")
 
-    if len(ch["node_mean_rssi_dbm"]) != 4:
-        raise ConfigValidationError("channel.node_mean_rssi_dbm must have exactly 4 entries")
-
-    if "provenance" not in params or "source" not in params.get("provenance", {}):
-        raise ConfigValidationError("measured_params.yaml must declare provenance.source")
+    timing = params["timing"]
+    required_timing = {"slot_duration_s", "uplink_delay_median_s", "late_arrival_probability"}
+    missing_timing = required_timing - set(timing.keys())
+    if missing_timing:
+        raise ConfigValidationError(f"measured_params.yaml 'timing' section missing: {missing_timing}")
 
 if __name__ == "__main__":
     # Test loading

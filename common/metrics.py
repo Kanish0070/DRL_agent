@@ -1,23 +1,28 @@
-"""Dynamic Urgency Index (DUI) and reward, as specified in criticality_metric_plan.md.
+"""Dynamic Urgency Index (DUI) -- the reward metric formalized in
+criticality_metric_plan.md (decision D3.1). A linear weighted-AoI term is
+supplemented with a non-linear penalty that sharpens as a node's AoI
+approaches its soft threshold, plus a queue-length term.
 
-This is the single authoritative implementation of the reward-shaping metric
-used by sim/network.py (P2), the baseline schedulers' channel-aware scoring
-(P3), and the RL reward function (P4) -- mirrors the role common/contracts/aoi.py
-plays for the AoI update rule, so training and evaluation can never silently
-diverge on what "urgency" means.
+    DUI_i(t) = w_i * (Delta_i(t) + lambda * (Delta_i(t) / tau_i)^alpha) + beta * Q_i(t)
+    R(t) = -sum_i DUI_i(t)
+
+All inputs are plain numpy arrays over the 4 nodes, matching the ordering
+used throughout the project (NetworkState.nodes, config.system.node_classes).
 """
 
 import numpy as np
 
 
-def compute_dui(aoi: np.ndarray, queue: np.ndarray, weights: np.ndarray,
-                 thresholds: np.ndarray, alpha: float, lambd: float, beta: float) -> np.ndarray:
-    """
-    DUI_i(t) = w_i * (AoI_i + lambda * (AoI_i / threshold_i)^alpha) + beta * queue_i
-
-    All arguments except the scalars (alpha, lambd, beta) are per-node arrays
-    of equal length. `thresholds` must be in the same units as `aoi`.
-    """
+def compute_dui(
+    aoi: np.ndarray,
+    queue: np.ndarray,
+    weights: np.ndarray,
+    thresholds: np.ndarray,
+    alpha: float,
+    lambd: float,
+    beta: float,
+) -> np.ndarray:
+    """Computes the Dynamic Urgency Index for every node."""
     base_aoi = weights * aoi
     threshold_penalty = lambd * np.power(aoi / thresholds, alpha)
     queue_penalty = beta * queue
