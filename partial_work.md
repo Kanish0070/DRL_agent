@@ -15,4 +15,4 @@ When resuming work, read this file first. When a task is completed, remove its e
 
 ---
 
-## Active Handoffs:
+## Active Handoffs
