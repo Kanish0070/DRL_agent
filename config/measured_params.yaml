@@ -1,0 +1,55 @@
+# Channel/timing parameters consumed by sim/channel.py and sim/network.py.
+#
+# THIS FILE IS PROVISIONAL. It has not been produced by the real P1 hardware
+# timing campaign (task.md T1.1-T1.7), which is blocked pending hardware
+# arrival. It is a stand-in ("P1'") so the rest of the pipeline (P2-P6) can
+# be built and produce real numbers now. See docs/PARAM_PROVENANCE.md for
+# exactly what is reused-from-repo vs assumed, and what must be replaced
+# once real hardware data (or an automated ns-3 batch-derivation script)
+# exists.
+#
+# Do not cite results produced from this file as hardware-validated.
+# common/provenance.py stamps every run with provenance.source below so
+# results can always be traced back to which parameter set produced them.
+
+channel:
+  # Logistic delivery-probability model p_s(RSSI) = 1 / (1 + exp(-(rssi - r50) / beta)).
+  # Reused as-is from ns3-sim/aoi-scheduler-sim.cc (R50_DBM, BETA_LOG), which
+  # is the one simulation artifact in this repo that already exercises a
+  # physically modeled 802.11 PHY (LogDistance + Nakagami fading channel).
+  r50_dbm: -82.0
+  beta_db: 4.0
+
+  # Per-node mean RSSI in dBm, node order matches system.node_classes
+  # (["urgent", "urgent", "important", "routine"]).
+  # NOT derived from a measured or simulated path-loss trace. Chosen to span
+  # strong / marginal / poor link quality around r50_dbm so the channel
+  # model has real signal for a scheduler to learn from; see
+  # docs/PARAM_PROVENANCE.md for the reasoning.
+  node_mean_rssi_dbm: [-65.0, -72.0, -80.0, -88.0]
+
+  # Small-scale (shadow) fading standard deviation applied per slot on top
+  # of the mean RSSI. Placeholder magnitude only.
+  fading_std_db: 4.0
+
+  # Slot duration in seconds. D1.1's rule (T_slot = P99 delay + 10ms, <=1%
+  # late-arrival budget) requires a real or simulated per-hop delay
+  # distribution to compute; none exists yet, so this inherits ns3-sim's
+  # own default slot duration unchanged.
+  t_slot_s: 0.1
+
+  # Sensor sample rate in seconds (D8.1: fast sensors at 10 Hz sets the AoI
+  # floor). Matches ns3-sim's IoTSensorApp sample interval.
+  sample_interval_s: 0.1
+
+provenance:
+  source: "ns3_derived_placeholder"
+  derived_from: >
+    r50_dbm/beta_db reused verbatim from ns3-sim/aoi-scheduler-sim.cc
+    (frozen, already validated by T2.8). node_mean_rssi_dbm, fading_std_db,
+    and t_slot_s are illustrative placeholders, not measured or fitted from
+    any simulation batch run.
+  replace_with: >
+    tools/derive_params_from_sim.py (planned P1' automation: batch ns-3
+    runs across the RSSI/distance sweep + curve fit) or a real T1.1-T1.7
+    hardware campaign once hardware is available.

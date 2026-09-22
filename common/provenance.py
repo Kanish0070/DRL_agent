@@ -6,8 +6,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
 
-from .config import load_system_config
+from .config import load_system_config, load_measured_params
 from .contracts.state_spec import get_state_schema_hash
+
+def get_params_source() -> str:
+    """
+    Returns the provenance.source tag of config/measured_params.yaml (e.g.
+    "hardware" once T1.1-T1.7 lands, or "ns3_derived_placeholder" for the
+    no-hardware substitute), so every run is traceable to which channel/
+    timing parameter set produced it. This is what makes the eventual
+    D11.1 sim-to-real gap comparison a filter over existing runs rather
+    than a rerun.
+    """
+    try:
+        params = load_measured_params()
+    except FileNotFoundError:
+        return "unknown"
+    return params.get("provenance", {}).get("source", "unknown")
 
 def get_git_provenance() -> dict:
     """Returns the current git commit SHA and dirty state."""
@@ -37,6 +52,7 @@ def generate_run_meta(policy_id: str, seed: int) -> Dict[str, Any]:
         "is_dirty": git_prov["is_dirty"],
         "config_hash": get_config_hash(),
         "state_schema_hash": get_state_schema_hash(),
+        "params_source": get_params_source(),
         "policy_id": policy_id,
         "seed": seed
     }

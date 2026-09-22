@@ -55,6 +55,45 @@ def _validate_schema(config: dict):
     if net.get("wifi_ps_mode") != "NONE":
         raise ConfigValidationError("network.wifi_ps_mode MUST be 'NONE' to avoid latency spikes")
 
+def load_measured_params(path: str | Path = "config/measured_params.yaml") -> dict:
+    """
+    Loads and validates the channel/timing parameters produced by either the
+    real P1 hardware campaign or its P1' no-hardware substitute (see
+    docs/PARAM_PROVENANCE.md). Every consumer (sim/channel.py, common/provenance.py)
+    reads this file rather than the campaign that produced it, so the two
+    tracks stay interchangeable.
+    """
+    path = Path(path)
+    if not path.exists():
+        project_root = Path(__file__).parent.parent
+        path = project_root / "config" / "measured_params.yaml"
+        if not path.exists():
+            raise FileNotFoundError(f"Measured params file not found at {path}")
+
+    with open(path, "r") as f:
+        params = yaml.safe_load(f)
+
+    _validate_measured_params(params)
+    return params
+
+def _validate_measured_params(params: dict):
+    """Validates the measured_params.yaml schema."""
+    if "channel" not in params:
+        raise ConfigValidationError("measured_params.yaml missing 'channel' section")
+
+    ch = params["channel"]
+    required = {"r50_dbm", "beta_db", "node_mean_rssi_dbm", "fading_std_db",
+                "t_slot_s", "sample_interval_s"}
+    missing = required - set(ch.keys())
+    if missing:
+        raise ConfigValidationError(f"measured_params.yaml 'channel' section missing: {missing}")
+
+    if len(ch["node_mean_rssi_dbm"]) != 4:
+        raise ConfigValidationError("channel.node_mean_rssi_dbm must have exactly 4 entries")
+
+    if "provenance" not in params or "source" not in params.get("provenance", {}):
+        raise ConfigValidationError("measured_params.yaml must declare provenance.source")
+
 if __name__ == "__main__":
     # Test loading
     cfg = load_system_config()
