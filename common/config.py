@@ -55,6 +55,55 @@ def _validate_schema(config: dict):
     if net.get("wifi_ps_mode") != "NONE":
         raise ConfigValidationError("network.wifi_ps_mode MUST be 'NONE' to avoid latency spikes")
 
+def load_measured_params(path: str | Path = "config/measured_params.yaml") -> dict:
+    """
+    Loads and validates the channel/timing parameters produced by the real P1
+    hardware campaign (task.md T1.1-T1.7, currently blocked) -- see
+    docs/P1_NS3_ESP32_DELAY_CHARACTERISATION.md for the approved hybrid
+    NS3+ESP32 methodology, and this file's own header for which values are
+    still PLACEHOLDER in the meantime. Every consumer (sim/channel.py) reads
+    this file rather
+    than the campaign that produced it, so swapping a real fit in later
+    needs no code changes.
+    """
+    path = Path(path)
+    if not path.exists():
+        project_root = Path(__file__).parent.parent
+        path = project_root / "config" / "measured_params.yaml"
+        if not path.exists():
+            raise FileNotFoundError(f"Measured params file not found at {path}")
+
+    with open(path, "r") as f:
+        params = yaml.safe_load(f)
+
+    _validate_measured_params(params)
+    return params
+
+def _validate_measured_params(params: dict):
+    """Validates the measured_params.yaml schema against what
+    sim.channel.ChannelParams.from_measured_params() and NetworkSim's
+    SimConfig.from_configs() actually read."""
+    if "channel" not in params:
+        raise ConfigValidationError("measured_params.yaml missing 'channel' section")
+    if "timing" not in params:
+        raise ConfigValidationError("measured_params.yaml missing 'timing' section")
+
+    ch = params["channel"]
+    required_channel = {"path_loss_exponent", "reference_distance_m", "reference_loss_db",
+                         "shadowing_sigma_db", "shadowing_correlation_rho",
+                         "logistic_r50_dbm", "logistic_slope_db",
+                         "ge_prob_good_to_bad", "ge_prob_bad_to_good",
+                         "ge_bad_state_success_multiplier"}
+    missing_channel = required_channel - set(ch.keys())
+    if missing_channel:
+        raise ConfigValidationError(f"measured_params.yaml 'channel' section missing: {missing_channel}")
+
+    timing = params["timing"]
+    required_timing = {"slot_duration_s", "uplink_delay_median_s", "late_arrival_probability"}
+    missing_timing = required_timing - set(timing.keys())
+    if missing_timing:
+        raise ConfigValidationError(f"measured_params.yaml 'timing' section missing: {missing_timing}")
+
 if __name__ == "__main__":
     # Test loading
     cfg = load_system_config()

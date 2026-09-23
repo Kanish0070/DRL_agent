@@ -32,3 +32,12 @@ def compute_dui(
 def calculate_reward(dui_scores: np.ndarray) -> float:
     """Reward is the negative sum of the network's total urgency."""
     return -float(np.sum(dui_scores))
+
+
+def criticality_weighted_aoi(aoi: np.ndarray, weights: np.ndarray) -> float:
+    """
+    D6.1: the primary reporting statistic -- criticality-weighted mean AoI
+    across nodes for a single slot/sample. Callers average this over slots
+    to get the run-level statistic.
+    """
+    return float(np.sum(weights * aoi) / np.sum(weights))

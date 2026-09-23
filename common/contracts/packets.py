@@ -64,4 +64,48 @@ class GrantPacket:
         crc = crc16_ccitt(data)
         return data + struct.pack("<H", crc)
 
-# TODO: Add DATA, HEARTBEAT, HELLO, CONTROL models similarly
+@dataclass
+class DataPacket:
+    header: PacketHeader
+    slot_id: int
+    age_at_tx_us: int
+    alarm_ack: bool = False   # D2.1 / FLAG_ALARM_ACK — set when replying to clear a latched alarm
+
+    def pack(self) -> bytes:
+        if self.alarm_ack:
+            self.header.flags |= FLAG_ALARM_ACK
+        payload = struct.pack("<II", self.slot_id, self.age_at_tx_us)
+        data = self.header.pack() + payload
+        crc = crc16_ccitt(data)
+        return data + struct.pack("<H", crc)
+
+@dataclass
+class HeartbeatPacket:
+    header: PacketHeader
+    rssi: int
+    
+    def pack(self) -> bytes:
+        payload = struct.pack("<i", self.rssi)
+        data = self.header.pack() + payload
+        crc = crc16_ccitt(data)
+        return data + struct.pack("<H", crc)
+
+@dataclass
+class HelloPacket:
+    header: PacketHeader
+    
+    def pack(self) -> bytes:
+        data = self.header.pack()
+        crc = crc16_ccitt(data)
+        return data + struct.pack("<H", crc)
+
+@dataclass
+class ControlPacket:
+    header: PacketHeader
+    command_code: int
+    
+    def pack(self) -> bytes:
+        payload = struct.pack("<B", self.command_code)
+        data = self.header.pack() + payload
+        crc = crc16_ccitt(data)
+        return data + struct.pack("<H", crc)

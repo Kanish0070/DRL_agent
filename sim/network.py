@@ -125,9 +125,10 @@ class NetworkSim:
         return self._build_observation()
 
     def step(self, action: int) -> tuple[np.ndarray, dict]:
-        if not (0 <= action < self.cfg.n_nodes):
-            raise ValueError(f"action {action} out of range for {self.cfg.n_nodes} nodes")
+        self.advance_slot()
+        return self.resolve(action)
 
+    def advance_slot(self) -> None:
         t_slot = self.cfg.t_slot
         self.channel.step(self.rng)
 
@@ -136,6 +137,21 @@ class NetworkSim:
             if self.rng.random() < self.cfg.arrival_prob[i]:
                 self.queues[i].push()
             self.queues[i].age_all(t_slot)
+
+        # Heartbeat-rate RSSI refresh for every node (D3.2): independent
+        # of grants, each node reports its RSSI on its own 2s cadence.
+        self.rssi_age_s += t_slot
+        self._heartbeat_countdown -= t_slot
+        for i in range(self.cfg.n_nodes):
+            if self._heartbeat_countdown[i] <= 0.0:
+                self._refresh_rssi(i)
+                self._heartbeat_countdown[i] += self.cfg.heartbeat_period_s
+
+    def resolve(self, action: int) -> tuple[np.ndarray, dict]:
+        if not (0 <= action < self.cfg.n_nodes):
+            raise ValueError(f"action {action} out of range for {self.cfg.n_nodes} nodes")
+
+        t_slot = self.cfg.t_slot
 
         # A late delivery scheduled by a previous slot resolves now,
         # taking priority over this slot's own grant outcome for that node.
@@ -164,15 +180,6 @@ class NetworkSim:
 
         self.metrics.step(action, packet_arrived, delivered_age, t_slot)
 
-        # Heartbeat-rate RSSI refresh for every node (D3.2): independent
-        # of grants, each node reports its RSSI on its own 2s cadence.
-        self.rssi_age_s += t_slot
-        self._heartbeat_countdown -= t_slot
-        for i in range(self.cfg.n_nodes):
-            if self._heartbeat_countdown[i] <= 0.0:
-                self._refresh_rssi(i)
-                self._heartbeat_countdown[i] += self.cfg.heartbeat_period_s
-
         self.slot_idx += 1
         truncated = self.slot_idx >= self.cfg.episode_length
 
@@ -188,8 +195,16 @@ class NetworkSim:
             "total_energy": self.metrics.total_energy,
             "aoi": self.metrics.aoi.copy(),
             "rssi_age_s": self.rssi_age_s.copy(),
+            "queue_status": np.array([q.has_data() for q in self.queues]),
         }
         return obs, info
+
+    def true_success_probabilities(self) -> np.ndarray:
+        """Returns ground-truth channel delivery probabilities for all nodes.
+        Only valid to call after `advance_slot()` and before `advance_slot()` is called again.
+        Used exclusively for Oracle scheduler baselines.
+        """
+        return np.array([self.channel.success_probability(i) for i in range(self.cfg.n_nodes)])
 
     def _refresh_rssi(self, node_idx: int) -> None:
         self.rssi_observed[node_idx] = self.channel.rssi(node_idx)

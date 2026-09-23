@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from common.metrics import calculate_reward, compute_dui
+from common.metrics import calculate_reward, compute_dui, criticality_weighted_aoi
 
 
 def _dui_of(aoi, weight=10.0, threshold=0.2, alpha=2.0, lambd=1.5, beta=0.5, queue=1.0):
@@ -49,3 +49,19 @@ def test_calculate_reward_higher_urgency_gives_more_negative_reward():
     low_urgency = calculate_reward(np.array([0.1, 0.1, 0.1, 0.1]))
     high_urgency = calculate_reward(np.array([5.0, 5.0, 5.0, 5.0]))
     assert high_urgency < low_urgency
+
+
+def test_criticality_weighted_aoi_matches_manual_formula():
+    aoi = np.array([0.1, 0.2, 0.3, 0.4])
+    weights = np.array([10.0, 10.0, 3.0, 1.0])
+    expected = float(np.sum(weights * aoi) / np.sum(weights))
+    assert criticality_weighted_aoi(aoi, weights) == pytest.approx(expected)
+
+
+def test_criticality_weighted_aoi_dominated_by_high_weight_node():
+    weights = np.array([10.0, 10.0, 3.0, 1.0])
+    aoi_urgent_high = np.array([1.0, 0.0, 0.0, 0.0])
+    aoi_routine_high = np.array([0.0, 0.0, 0.0, 1.0])
+
+    assert (criticality_weighted_aoi(aoi_urgent_high, weights)
+            > criticality_weighted_aoi(aoi_routine_high, weights))
