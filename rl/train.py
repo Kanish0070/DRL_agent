@@ -40,6 +40,7 @@ def train_one(seed: int, sys_cfg: dict, meas_cfg: dict) -> str:
         policy_kwargs={"net_arch": rl_cfg["net_arch"]},
         tensorboard_log="runs/",
         seed=seed,
+        device="cuda",
         verbose=0,
     )
 

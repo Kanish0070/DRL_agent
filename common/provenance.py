@@ -60,6 +60,7 @@ def generate_run_meta(policy_id: str, seed: int) -> Dict[str, Any]:
 
 def write_run_meta(run_dir: Path, policy_id: str, seed: int):
     """Writes the metadata to the specified run directory."""
+    run_dir = Path(run_dir)
     meta = generate_run_meta(policy_id, seed)
     run_dir.mkdir(parents=True, exist_ok=True)
     with open(run_dir / "run_meta.json", "w") as f:
