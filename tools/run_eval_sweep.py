@@ -1,5 +1,4 @@
 import os
-import sys
 import subprocess
 import yaml
 
@@ -18,7 +17,7 @@ def main():
     for sched in schedulers:
         print(f"--- Running baseline: {sched} ---")
         for seed in eval_seeds:
-            cmd = [sys.executable, "-m", "eval.run", "--scheduler", sched, "--seed", str(seed), "--out-dir", "results"]
+            cmd = ["python", "-m", "eval.run", "--scheduler", sched, "--seed", str(seed), "--out-dir", "results"]
             subprocess.run(cmd, check=True)
 
     # 2. Run DQN models (evaluate all 5 trained models)
@@ -31,7 +30,7 @@ def main():
         print(f"--- Running DQN model from train seed {t_seed} ---")
         for e_seed in eval_seeds:
             cmd = [
-                sys.executable, "-m", "eval.run", 
+                "python", "-m", "eval.run", 
                 "--scheduler", "dqn", 
                 "--model-path", model_path,
                 "--seed", str(e_seed), 
