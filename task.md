@@ -247,3 +247,37 @@ hybrid methodology that satisfies the acceptance criteria below without a Pi.
 ### Acceptance Criteria
 - [ ] Every fault executed ≥3x
 - [ ] `make report` regenerates everything from clean clone
+
+## N: NS-3 Evaluation and Live Demo (substitutes hardware-blocked P9/P11/P12)
+*Full plan: `NS3_SIMULATION_AND_DEMO_PLAN.md`. The policy is trained in the Python sim (D2.2 unchanged) and evaluated, frozen, inside ns-3. All results are simulation results on PLACEHOLDER `config/measured_params.yaml` unless N3.2 chooses recalibration.*
+
+| Task ID | Objective | Key Files | Status | Assignee |
+|---|---|---|---|---|
+| N0.1 | Publish exported policies, parity green, fill training/sim results docs | `deploy/artifacts/`, `docs/TRAINING.md`, `docs/RESULTS_SIM.md` | ⬜ TODO | - |
+| N0.2 | WSL2/Docker ns-3 env, baseline sim validates | `ns3-sim/scripts/`, `ns3-sim/Dockerfile` | ⬜ TODO | - |
+| N1.1 | Text export for C++ | `deploy/export_ns3.py` | ⬜ TODO | - |
+| N1.2 | Header-only C++ MLP policy | `ns3-sim/dqn-policy.h` | ⬜ TODO | - |
+| N1.3 | C++/NumPy parity gate + constant hygiene | `tests/test_ns3_policy_parity.py`, `ns3-sim/tests/parity_main.cc` | ⬜ TODO | - |
+| N2.1 | DQN scheduler + observation builder | `ns3-sim/aoi-scheduler-sim.cc` | ⬜ TODO | - |
+| N2.2 | Tx-power/path-loss/distance flags (default 20 dBm) | `ns3-sim/aoi-scheduler-sim.cc` | ⬜ TODO | - |
+| N2.3 | Liveness tracking + `events.jsonl` | `ns3-sim/aoi-scheduler-sim.cc` | ⬜ TODO | - |
+| N2.4 | Interferer / mobility / fault / scenario-file flags | `ns3-sim/aoi-scheduler-sim.cc`, `ns3-sim/scenarios/` | ⬜ TODO | - |
+| N2.5 | SetRun seeding, results layout, provenance | `ns3-sim/scripts/run_campaign.sh` | ⬜ TODO | - |
+| N2.6 | Live UDP telemetry + realtime mode | `ns3-sim/aoi-scheduler-sim.cc` | ⬜ TODO | - |
+| N3.1 | PDR-vs-RSSI calibration + obs-distribution KS | `ns3-sim/analysis/calibrate_channel.py` | ⬜ TODO | - |
+| N3.2 | Owner decision D-N3: frozen policy vs recalibrate + retrain | `task.md` | ⚠️ DECISION REQUIRED (after N3.1) | Owner |
+| N4.1 | Freeze ns-3 eval-protocol addendum (before DQN ns-3 results) | `docs/EVAL_PROTOCOL.md` | ⬜ TODO | - |
+| N4.2 | Run campaign S0–S4 | `ns3-sim/results/` | ⬜ TODO | - |
+| N4.3 | Stats, sim-to-ns3 gap statistics, figures | `eval/stats.py`, `eval/figures.py` | ⬜ TODO | - |
+| N5.1 | Demo server (replay) | `tools/demo_server.py` | ⬜ TODO | - |
+| N5.2 | Dashboard front end | `dashboard/static/` | ⬜ TODO | - |
+| N5.3 | Demo scenario recordings | `ns3-sim/scenarios/demo.json` | ⬜ TODO | - |
+| N6.1 | Live mode + launcher (optional) | `tools/run_live_demo.sh` | ⬜ TODO | - |
+| N7.1 | Results doc, READMEs, viva answers, backup video, rehearsal | `docs/RESULTS_NS3.md` | ⬜ TODO | - |
+
+### Acceptance Criteria
+- [ ] C++ policy matches `deploy/infer.py` on all 5 seeds (max |ΔQ| < 1e-4, 100% argmax agreement); mismatched schema hash rejected
+- [ ] All 6 policies run in S0–S4 on `rl.eval_seeds`; DQN runs pass `validate_against_contracts.py`; per-seed runs deterministic
+- [ ] ns-3 eval-protocol addendum frozen before DQN ns-3 results are viewed
+- [ ] Leaderboards with CIs, shuffled-label control, and the three sim-to-ns3 gap statistics in `docs/RESULTS_NS3.md`
+- [ ] Demo replays offline from recorded runs; backup video captured
