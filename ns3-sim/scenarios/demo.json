@@ -1,0 +1,83 @@
+{
+  "scenario_name": "demo_120s",
+  "duration_s": 120.0,
+  "slot_duration_s": 0.1,
+  "nodes": [
+    {
+      "id": 0,
+      "name": "STA-1",
+      "class": "urgent",
+      "distance_m": 5.0,
+      "weight": 8.0,
+      "soft_threshold_ms": 200,
+      "shield_ceiling_s": 2.0
+    },
+    {
+      "id": 1,
+      "name": "STA-2",
+      "class": "urgent",
+      "distance_m": 8.0,
+      "weight": 8.0,
+      "soft_threshold_ms": 200,
+      "shield_ceiling_s": 2.0
+    },
+    {
+      "id": 2,
+      "name": "STA-3",
+      "class": "fast",
+      "distance_m": 12.0,
+      "weight": 3.0,
+      "soft_threshold_ms": 500,
+      "shield_ceiling_s": 6.0
+    },
+    {
+      "id": 3,
+      "name": "STA-4",
+      "class": "routine",
+      "distance_m": 18.0,
+      "weight": 1.0,
+      "soft_threshold_ms": 1000,
+      "shield_ceiling_s": 20.0
+    }
+  ],
+  "timeline": [
+    {
+      "time_s": 0.0,
+      "event": "nominal_start",
+      "description": "Nominal conditions across all 4 nodes"
+    },
+    {
+      "time_s": 20.0,
+      "event": "interferer_on",
+      "target_node": 3,
+      "description": "Co-channel interferer ON near STA-4 (burst drops ~20%)"
+    },
+    {
+      "time_s": 45.0,
+      "event": "interferer_off_mobility_start",
+      "target_node": 3,
+      "speed_mps": 1.0,
+      "destination_distance_m": 45.0,
+      "description": "Interferer OFF; routine STA-4 walks to coverage edge"
+    },
+    {
+      "time_s": 70.0,
+      "event": "fault_sta2_fail",
+      "target_node": 1,
+      "state": "UNREACHABLE",
+      "description": "Urgent STA-2 fails (disconnected, 0% PDR)"
+    },
+    {
+      "time_s": 100.0,
+      "event": "fault_sta2_recover",
+      "target_node": 1,
+      "state": "RECOVERED",
+      "description": "Urgent STA-2 recovers; rapid AoI discharge via priority scheduling"
+    },
+    {
+      "time_s": 120.0,
+      "event": "scenario_end",
+      "description": "End of 120s evaluation demo"
+    }
+  ]
+}

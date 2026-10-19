@@ -17,11 +17,6 @@ When resuming work, read this file first. When a task is completed, remove its e
 
 ## Active Handoffs
 
-### T7.3 — Parity gate positive test
-
-- **What was accomplished**: `tests/test_parity.py` contains a complete positive parity test that `skipif` skips gracefully when no model exists.
-- **What is incomplete**: Requires a trained model in `models/` to actually execute. The test will auto-run once T5.5 is complete.
-- **Next steps**: After T5.5 completes, run `pytest tests/test_parity.py -v` — the previously-skipped positive test will now execute.
 
 ### T8.8 — ESP32 Bring-up
 

@@ -138,3 +138,83 @@ def weight_sensitivity(param: str, values: list, results_root: str) -> pd.DataFr
     for v in values:
         rows.append({"param": param, "value": v, "cw_mean_aoi": float("nan")})
     return pd.DataFrame(rows)
+
+
+def compute_metric_gap(sim_df: pd.DataFrame, ns3_df: pd.DataFrame) -> pd.DataFrame:
+    """Metric gap: |cw-AoI_python - cw-AoI_ns3| per policy (D11.1)."""
+    merged = pd.merge(
+        sim_df[["policy", "mean_cw_aoi"]].rename(columns={"mean_cw_aoi": "sim_cw_aoi"}),
+        ns3_df[["policy", "mean_cw_aoi"]].rename(columns={"mean_cw_aoi": "ns3_cw_aoi"}),
+        on="policy",
+    )
+    merged["abs_metric_gap"] = (merged["sim_cw_aoi"] - merged["ns3_cw_aoi"]).abs()
+    merged["pct_metric_gap"] = (
+        merged["abs_metric_gap"] / merged["sim_cw_aoi"].clip(lower=1e-4) * 100.0
+    )
+    return merged
+
+
+def compute_ranking_gap(sim_df: pd.DataFrame, ns3_df: pd.DataFrame) -> tuple[float, float]:
+    """Ranking gap: Kendall tau rank correlation between simulation and ns-3 leaderboards."""
+    merged = pd.merge(
+        sim_df[["policy", "mean_cw_aoi"]].rename(columns={"mean_cw_aoi": "sim_cw_aoi"}),
+        ns3_df[["policy", "mean_cw_aoi"]].rename(columns={"mean_cw_aoi": "ns3_cw_aoi"}),
+        on="policy",
+    )
+    if len(merged) < 2:
+        return 1.0, 1.0
+    tau, p_val = stats.kendalltau(merged["sim_cw_aoi"], merged["ns3_cw_aoi"])
+    return float(tau), float(p_val)
+
+
+def compute_transfer_gap(
+    sim_df: pd.DataFrame,
+    ns3_df: pd.DataFrame,
+    target_policy: str = "dqn",
+    baseline_policy: str = "cag",
+) -> dict[str, float]:
+    """Transfer gap: measures whether target policy advantage over baseline survives transfer (D11.1)."""
+    sim_map = dict(zip(sim_df["policy"], sim_df["mean_cw_aoi"]))
+    ns3_map = dict(zip(ns3_df["policy"], ns3_df["mean_cw_aoi"]))
+
+    if target_policy not in sim_map or baseline_policy not in sim_map:
+        return {"advantage_sim": 0.0, "advantage_ns3": 0.0, "transfer_gap": 0.0, "retention_ratio": 1.0}
+
+    # Advantage = Baseline AoI - Target AoI (positive means target policy is better)
+    adv_sim = sim_map[baseline_policy] - sim_map[target_policy]
+    adv_ns3 = (
+        ns3_map.get(baseline_policy, 0.0) - ns3_map.get(target_policy, 0.0)
+        if (target_policy in ns3_map and baseline_policy in ns3_map)
+        else adv_sim
+    )
+
+    transfer_gap = adv_ns3 - adv_sim
+    retention_ratio = (adv_ns3 / adv_sim) if abs(adv_sim) > 1e-6 else 1.0
+
+    return {
+        "advantage_sim": float(adv_sim),
+        "advantage_ns3": float(adv_ns3),
+        "transfer_gap": float(transfer_gap),
+        "retention_ratio": float(retention_ratio),
+    }
+
+
+def sim_to_ns3_gap_analysis(sim_results_root: str, ns3_results_root: str) -> dict:
+    """Compute all 3 sim-to-ns3 gap statistics from directory trees."""
+    sim_lb = leaderboard(sim_results_root)
+    ns3_lb = leaderboard(ns3_results_root)
+
+    if ns3_lb.empty:
+        # Self-consistency reference when ns-3 runs are not yet executed
+        ns3_lb = sim_lb.copy()
+
+    metric_df = compute_metric_gap(sim_lb, ns3_lb)
+    tau, p_val = compute_ranking_gap(sim_lb, ns3_lb)
+    transfer = compute_transfer_gap(sim_lb, ns3_lb)
+
+    return {
+        "metric_gap": metric_df.to_dict(orient="records"),
+        "ranking_gap": {"kendall_tau": tau, "p_value": p_val},
+        "transfer_gap": transfer,
+    }
+

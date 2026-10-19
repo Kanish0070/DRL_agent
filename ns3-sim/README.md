@@ -7,21 +7,16 @@ grant-reply scheduling protocol running as an application-layer overlay on
 It compares five baseline schedulers under a deterministic AoI safety
 shield and produces the plots used in the panel demo.
 
-This is a simulation-only deliverable: it does **not** run DRL training
-inside NS-3 (that needs `ns3-ai` shared-memory integration and is a later
-phase). It demonstrates the baseline schedulers, the safety shield, and
-AoI telemetry, and cross-validates its math against the project's frozen
-Python contracts.
+This simulation evaluates both the five heuristic baseline schedulers and the
+frozen **Deep Q-Network (DQN)** policy evaluated natively in C++ via
+[`dqn-policy.h`](dqn-policy.h) (without ns3-ai or Python runtime overhead),
+under realistic 802.11n MAC/PHY conditions with a deterministic safety shield.
 
 ## Prerequisites
 
-- A native Linux install (Ubuntu 22.04 or 24.04) — NS-3 does not build on
-  Windows, and this project assumes a Linux/dual-boot environment rather
-  than WSL2.
+- A Linux environment (Ubuntu 22.04 or 24.04, native dual-boot, WSL2, or Docker).
 - ~4 GB free disk space for NS-3 + NetAnim.
-- Python 3.11+ with `pandas`, `matplotlib`, `numpy` for the analysis
-  scripts (these can run on the same Linux install, or anywhere with a
-  copy of this repo).
+- Python 3.11+ with `pandas`, `matplotlib`, `numpy`, `scipy`, `pyyaml`, and `pytest`.
 
 ## Quick Start
 
@@ -29,15 +24,23 @@ Python contracts.
 # 1. Install NS-3.41 and symlink this directory into its scratch/ folder
 bash ns3-sim/scripts/ns3_setup.sh
 
-# 2. Single run
+# 2. Run C++ / NumPy parity gate test (works on Linux and Windows)
+pytest tests/test_ns3_policy_parity.py -v
+
+# 3. Single DQN evaluation run
 cd ~/ns3/ns-allinone-3.41/ns-3.41
-./ns3 run "scratch/aoi-scheduler/aoi-scheduler-sim --scheduler=cag --seed=0 --csvOutput=results/cag_seed0.csv"
+./ns3 run "scratch/aoi-scheduler/aoi-scheduler-sim \
+    --scheduler=dqn \
+    --policyFile=deploy/artifacts/dqn_seed0.txt \
+    --policyId=dqn_seed0 \
+    --seed=100 \
+    --csvOutput=ns3-sim/results/S0/dqn_seed0/seed100/log.csv"
 
-# 3. Full comparison campaign (25 runs + all plots)
-bash ns3-sim/scripts/run_all_schedulers.sh
+# 4. Full S0-S4 comparison campaign (parallel across cores)
+bash ns3-sim/scripts/run_campaign.sh
 
-# 4. View the animated topology
-netanim  # then open ns3-sim/results/topology.xml
+# 5. Run the Realtime Live Demo + Web Dashboard
+bash tools/run_live_demo.sh
 ```
 
 ## Architecture
@@ -53,15 +56,18 @@ graph TD
         G -->|"UDP DATA, port 5005"| F
         G -->|"UDP HEARTBEAT, port 5007"| F
 
-        F --> H["Scheduler: RR / FPQ / Max-Weight / CAG / Random"]
-        H --> H5["Safety Shield (wraps every scheduler)"]
-        F --> I["Per-node AoI + RSSI tracking"]
-        F --> J["CSV Logger (one row per slot)"]
-        F --> K["NetAnim interface"]
+        F --> H["Scheduler: RR / FPQ / Max-Weight / CAG / Random / DQN"]
+        H --> H4["dqn-policy.h (C++ MLP Forward Pass)"]
+        H --> H5["Safety Shield + Liveness Masking"]
+        F --> I["Per-node AoI + RSSI tracking + Liveness (OK/DEGRADED/UNREACHABLE)"]
+        F --> J["CSV Logger + events.jsonl Sidecar"]
+        F --> K["Live UDP Streamer (port 9999)"]
+        F --> L["NetAnim interface"]
     end
 
-    J -->|"*.csv"| L["ns3-sim/analysis/*.py"]
-    K -->|"topology.xml"| M["NetAnim GUI"]
+    J -->|"log.csv / events.jsonl"| M["eval/stats.py & eval/figures.py"]
+    K -->|"UDP Datagrams"| N["tools/demo_server.py -> Web Dashboard"]
+    L -->|"topology.xml"| O["NetAnim GUI"]
 ```
 
 ## Node Configuration
@@ -78,37 +84,43 @@ These match `config/system.yaml`'s `system.node_classes`,
 
 ## Scheduler Algorithms
 
-All are wrapped by the safety shield, which force-grants the highest
-`weight * AoI` node among any breaching its ceiling:
+All schedulers are wrapped by the deterministic safety shield and liveness masking:
 
-- **Round Robin**: `a_t = t mod 4`
-- **Fixed Priority**: highest class (urgent > important > routine), ties
-  broken by AoI.
-- **Max-Weight**: `argmax_i  w_i * AoI_i`
-- **Channel-Aware Greedy**: `argmax_i  w_i * AoI_i * p_success(RSSI_i)`,
-  with a logistic `p_success` (R50 = -82 dBm, slope 4 dB).
-- **Random**: uniform over the 4 nodes.
+- **Round Robin**: `a_t = t mod 4` (skipping unreachable nodes).
+- **Fixed Priority**: highest class (urgent > important > routine), ties broken by AoI.
+- **Max-Weight**: `argmax_i w_i * AoI_i` over reachable nodes.
+- **Channel-Aware Greedy**: `argmax_i w_i * AoI_i * p_success(RSSI_i)` (logistic delivery probability).
+- **Random**: uniform selection among reachable nodes.
+- **Deep Q-Network (DQN)**: 16→64→64→4 MLP running natively in C++ via `dqn-policy.h`, with `ActMasked` reachability masking.
 
-## Parameters
+## Parameters & CLI Flags
 
-| CLI flag | Meaning | Maps to `config/system.yaml` |
-|---|---|---|
-| `--scheduler` | `rr\|fpq\|maxweight\|cag\|random` | (new; not in config) |
-| `--slotDuration` | Slot duration, seconds | placeholder 100 ms, pending P1 hardware measurement |
-| `--simTime` | Simulation duration, seconds | `scheduler.run_duration_s` (300) |
-| `--seed` | RNG seed | `rl.train_seeds` / `rl.eval_seeds` |
-| `--enableNetAnim` | Emit `topology.xml` | — |
-| `--csvOutput` | Per-slot telemetry CSV path | — |
+| CLI flag | Meaning | Default | Maps to blueprint |
+|---|---|---|---|
+| `--scheduler` | `rr\|fpq\|maxweight\|cag\|random\|dqn` | `rr` | N2.1 |
+| `--policyFile` | Path to plain-text exported weights | `""` | N1.1, N2.1 |
+| `--policyId` | Identifier string for CSV column | `""` | N2.1 |
+| `--slotDuration` | Slot duration in seconds | `0.1` (100 ms) | `system.slot_duration_ms` |
+| `--simTime` | Simulation duration in seconds | `300.0` | `scheduler.run_duration_s` |
+| `--seed` | RNG replication seed (`SetRun`) | `100` | `rl.eval_seeds` |
+| `--txPower` | Transmit power in dBm | `20.0` | `sim/channel.py` (N2.2) |
+| `--pathLossExp` | Log-distance path loss exponent | `2.8` | N2.2 |
+| `--distanceScale` | Node distance scaling factor | `1.0` | N2.2 |
+| `--interferer` | `none\|cochannel\|hidden` | `none` | S2 scenario (N2.4) |
+| `--mobileNode` | Node ID for waypoint mobility | `-1` | S3 scenario (N2.4) |
+| `--failNode` | Node ID for fault injection | `-1` | S4 scenario (N2.4) |
+| `--scenarioFile` | JSON timeline scenario file | `""` | `demo.json` (N2.4) |
+| `--liveUdpPort` | UDP port for live telemetry streaming | `0` (disabled) | N2.6 |
+| `--realtime` | Enable wall-clock simulation clock | `false` | N2.6 |
 
 ## Output Files
 
-Written next to whatever directory `--csvOutput` points at:
+Colocated with `--csvOutput`:
 
-- **CSV** — per-slot telemetry; columns match
-  [`common/contracts/log_schema.py`](../common/contracts/log_schema.py)'s
-  `SLOT_LOG_COLUMNS` exactly.
-- **`flowmon-results.xml`** — NS-3 FlowMonitor per-flow stats.
-- **`topology.xml`** — NetAnim animation (only when `--enableNetAnim=true`).
+- **`log.csv`** — per-slot telemetry matching `SLOT_LOG_COLUMNS`.
+- **`events.jsonl`** — timestamped event stream (faults, recoveries, shield activations, interferer).
+- **`flowmon-results.xml`** — NS-3 FlowMonitor packet and delay metrics.
+- **`topology.xml`** — NetAnim animation trace.
 
 ## Analysis Scripts
 

@@ -78,9 +78,9 @@ def test_parity_gate():
         params = dict(np.load(npz_path + ".npz", allow_pickle=True))
 
     # SB3 Q-values
-    obs_tensor = torch.tensor(obs_batch)
+    obs_tensor = torch.tensor(obs_batch, device=model.device)
     with torch.no_grad():
-        sb3_q = model.q_net(obs_tensor).numpy()
+        sb3_q = model.q_net(obs_tensor).cpu().numpy()
 
     # NumPy Q-values
     np_q = np.stack([infer(params, obs) for obs in obs_batch])

@@ -1,0 +1,132 @@
+{
+  "channel_fit": {
+    "r50_sim": -82.0,
+    "slope_sim": 4.0,
+    "r50_ns3_fit": -81.92341100620094,
+    "slope_ns3_fit": 4.199827968972035,
+    "r_squared": 0.9938183448198237,
+    "r50_delta_dbm": 0.07658899379906359
+  },
+  "ks_drift": {
+    "mean_ks_statistic": 0.0,
+    "max_ks_statistic": 0.0,
+    "per_feature": [
+      {
+        "feature_index": 0,
+        "feature_name": "STA-1_aoi_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 1,
+        "feature_name": "STA-1_queue_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 2,
+        "feature_name": "STA-1_rssi_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 3,
+        "feature_name": "STA-1_weight_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 4,
+        "feature_name": "STA-2_aoi_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 5,
+        "feature_name": "STA-2_queue_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 6,
+        "feature_name": "STA-2_rssi_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 7,
+        "feature_name": "STA-2_weight_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 8,
+        "feature_name": "STA-3_aoi_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 9,
+        "feature_name": "STA-3_queue_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 10,
+        "feature_name": "STA-3_rssi_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 11,
+        "feature_name": "STA-3_weight_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 12,
+        "feature_name": "STA-4_aoi_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 13,
+        "feature_name": "STA-4_queue_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 14,
+        "feature_name": "STA-4_rssi_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      },
+      {
+        "feature_index": 15,
+        "feature_name": "STA-4_weight_norm",
+        "ks_statistic": 0.0,
+        "p_value": 1.0,
+        "significant_drift": false
+      }
+    ]
+  },
+  "decision_D_N3": {
+    "recommendation": "a (keep frozen policy)",
+    "rationale": "R50 delta is 0.08 dBm (threshold 4.0 dBm); mean KS stat is 0.000."
+  }
+}

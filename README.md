@@ -39,3 +39,28 @@ Ensure code formatting remains consistent by installing the pre-commit hooks:
 ```bash
 pre-commit install
 ```
+
+## Running the Live Demo & NS-3 Evaluation
+
+### Interactive Web Dashboard (Offline / Replay Mode)
+The project includes an interactive web dashboard showing the star topology, live AoI bars, rolling sawtooth graphs, and side-by-side policy comparisons:
+
+```bash
+# Start the demo telemetry server and launch dashboard in browser
+python -m tools.demo_server --open-browser
+```
+
+### Realtime NS-3 Live Demo
+To launch the real-time NS-3 simulation streaming live telemetry to the web dashboard:
+
+```bash
+bash tools/run_live_demo.sh
+```
+
+### NS-3 Evaluation Campaign (Scenarios S0–S4)
+To execute the full evaluation matrix across all policies (RR, FPQ, Max-Weight, CAG, Random, DQN) and seeds:
+
+```bash
+bash ns3-sim/scripts/run_campaign.sh
+```
+

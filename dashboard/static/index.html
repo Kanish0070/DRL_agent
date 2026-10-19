@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AoI DRL Scheduler — Evaluation & Live Demo Dashboard</title>
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --urgent: #ef4444;
+      --fast: #f59e0b;
+      --routine: #10b981;
+      --border: #334155;
+      --shield-flash: #dc2626;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      padding: 16px;
+      line-height: 1.5;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    .title-group h1 { font-size: 1.35rem; font-weight: 700; color: #fff; }
+    .title-group p { font-size: 0.85rem; color: var(--text-muted); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .badge-replay { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #0284c7; }
+    .badge-live { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #b91c1c; }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.2); } }
+
+    /* Controls Bar */
+    .controls-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      background: var(--bg-secondary);
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    button {
+      background: #0284c7;
+      color: white;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s;
+    }
+    button:hover { background: #0369a1; }
+    button.secondary { background: var(--border); color: var(--text-main); }
+    button.secondary:hover { background: #475569; }
+    select, input[type="range"] {
+      background: var(--bg-primary);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }
+    .scrubber-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 200px;
+    }
+    .scrubber-container input { flex: 1; }
+
+    /* KPIs Row */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .kpi-card {
+      background: var(--bg-secondary);
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .kpi-title { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+    .kpi-val { font-size: 1.6rem; font-weight: 700; color: #fff; margin-top: 4px; }
+    .kpi-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+
+    /* Main Dashboard Grid */
+    .grid-layout {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 900px) { .grid-layout { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    /* Topology Canvas */
+    #topologyCanvas {
+      width: 100%;
+      height: 320px;
+      background: #090d16;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      display: block;
+    }
+
+    /* Live AoI Bars */
+    .aoi-bar-item { margin-bottom: 12px; }
+    .aoi-bar-header { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px; }
+    .aoi-bar-outer {
+      width: 100%;
+      height: 18px;
+      background: #090d16;
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .aoi-bar-fill {
+      height: 100%;
+      width: 0%;
+      transition: width 0.1s linear, background-color 0.2s;
+    }
+    .threshold-marker {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #94a3b8;
+      z-index: 2;
+    }
+    .ceiling-marker {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--urgent);
+      z-index: 2;
+    }
+
+    /* Sawtooth Chart Canvas */
+    #sawtoothCanvas {
+      width: 100%;
+      height: 240px;
+      background: #090d16;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      display: block;
+    }
+
+    /* Side-by-Side Mode */
+    .side-by-side-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    @media (max-width: 1000px) { .side-by-side-grid { grid-template-columns: 1fr; } }
+    .policy-column {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .policy-column.active { border-color: var(--accent); }
+    .policy-title { font-weight: 700; font-size: 1rem; margin-bottom: 8px; display: flex; justify-content: space-between; }
+
+    /* Event Ticker */
+    .event-ticker {
+      background: #0284c715;
+      border: 1px solid #0284c740;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .event-time { font-weight: 700; color: var(--accent); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="title-group">
+      <h1>Age-of-Information DRL Scheduler — Evaluation Dashboard</h1>
+      <p>Multi-Class Grant-Reply IEEE 802.11n MAC with DQN & Safety Shield</p>
+    </div>
+    <div id="statusBadge" class="badge badge-replay">
+      <span class="pulse"></span>
+      <span id="badgeText">Replay Mode</span>
+    </div>
+  </header>
+
+  <!-- Event Ticker -->
+  <div class="event-ticker">
+    <span class="event-time" id="tickerTime">t = 0.0s</span>
+    <span id="tickerEvent">Nominal operating conditions across all 4 nodes</span>
+  </div>
+
+  <!-- Playback & Policy Controls -->
+  <div class="controls-bar">
+    <button id="btnPlayPause">Pause</button>
+    <button id="btnRestart" class="secondary">Restart</button>
+    
+    <label for="speedSelect" style="font-size: 0.85rem; color: var(--text-muted);">Speed:</label>
+    <select id="speedSelect">
+      <option value="1">1×</option>
+      <option value="2" selected>2×</option>
+      <option value="5">5×</option>
+      <option value="10">10×</option>
+    </select>
+
+    <div class="scrubber-container">
+      <span id="timeDisplay" style="font-family: monospace; font-size: 0.85rem;">00:00 / 02:00</span>
+      <input type="range" id="timeScrubber" min="0" max="120" step="0.1" value="0">
+    </div>
+
+    <label for="policySelect" style="font-size: 0.85rem; color: var(--text-muted);">Policy:</label>
+    <select id="policySelect">
+      <option value="dqn" selected>DQN (Deep Q-Network)</option>
+      <option value="cag">CAG (Channel-Aware Greedy)</option>
+      <option value="maxweight">Max-Weight</option>
+      <option value="rr">Round Robin</option>
+      <option value="fpq">Fixed Priority Queue</option>
+    </select>
+
+    <button id="btnToggleSideBySide" class="secondary">Toggle Side-by-Side</button>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-title">Criticality-Weighted AoI</div>
+      <div class="kpi-val" id="kpiCwAoI">0.00 s</div>
+      <div class="kpi-sub">Target primary metric</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Shield Activations</div>
+      <div class="kpi-val" id="kpiShieldCount" style="color: var(--urgent);">0 (0.0%)</div>
+      <div class="kpi-sub">Target &lt; 5.0% in nominal</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Packet Delivery Ratio</div>
+      <div class="kpi-val" id="kpiPdr" style="color: var(--routine);">100%</div>
+      <div class="kpi-sub">Uplink grant success</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Wasted Slot Grants</div>
+      <div class="kpi-val" id="kpiWasted">0</div>
+      <div class="kpi-sub">Unreachable / dropped grants</div>
+    </div>
+  </div>
+
+  <!-- Primary Visuals Grid -->
+  <div class="grid-layout">
+    <!-- Topology Card -->
+    <div class="card">
+      <div class="card-header">
+        <span>Topology & Grant Beam</span>
+        <span id="shieldAlert" style="color: var(--urgent); display: none; font-size: 0.8rem; font-weight: 700;">SHIELD OVERRIDE!</span>
+      </div>
+      <canvas id="topologyCanvas" width="380" height="320"></canvas>
+    </div>
+
+    <!-- Live AoI Gauges Card -->
+    <div class="card">
+      <div class="card-header">
+        <span>Current Node AoI & Ceilings</span>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">Dotted = Soft threshold | Red = Ceiling</span>
+      </div>
+      <div id="aoiBarsContainer">
+        <!-- Generated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Sawtooth Waveform Card -->
+  <div class="card" style="margin-bottom: 16px;">
+    <div class="card-header">
+      <span>Rolling AoI Sawtooth Trajectory (Last 30 Seconds)</span>
+      <span style="font-size: 0.8rem; color: var(--text-muted);">Real-time linear rise and reset on packet ACK</span>
+    </div>
+    <canvas id="sawtoothCanvas" width="900" height="240"></canvas>
+  </div>
+
+  <!-- Side-by-Side Mode Container (Hidden by default) -->
+  <div id="sideBySideContainer" style="display: none;">
+    <h3 style="margin-bottom: 10px; font-size: 1.1rem; color: #fff;">Synchronized Side-by-Side Comparison</h3>
+    <div class="side-by-side-grid">
+      <!-- RR Column -->
+      <div class="policy-column">
+        <div class="policy-title">
+          <span>Round Robin (RR)</span>
+          <span id="sbsCwAoI_rr" style="color: var(--urgent);">0.00 s</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">PDR: <span id="sbsPdr_rr">100%</span> | Wasted: <span id="sbsWasted_rr">0</span></div>
+        <div id="sbsBars_rr"></div>
+      </div>
+
+      <!-- CAG Column -->
+      <div class="policy-column">
+        <div class="policy-title">
+          <span>Channel-Aware Greedy</span>
+          <span id="sbsCwAoI_cag" style="color: var(--fast);">0.00 s</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">PDR: <span id="sbsPdr_cag">100%</span> | Wasted: <span id="sbsWasted_cag">0</span></div>
+        <div id="sbsBars_cag"></div>
+      </div>
+
+      <!-- DQN Column -->
+      <div class="policy-column active">
+        <div class="policy-title">
+          <span style="color: var(--accent);">DQN + Shield (Proposed)</span>
+          <span id="sbsCwAoI_dqn" style="color: var(--routine);">0.00 s</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">PDR: <span id="sbsPdr_dqn">100%</span> | Shields: <span id="sbsShield_dqn">0</span></div>
+        <div id="sbsBars_dqn"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Configuration & Scenario Definitions
+    const NODES = [
+      { id: 0, name: "STA-1", class: "urgent", weight: 8.0, dist: 5.0, softMs: 200, ceilingS: 2.0, color: "#ef4444" },
+      { id: 1, name: "STA-2", class: "urgent", weight: 8.0, dist: 8.0, softMs: 200, ceilingS: 2.0, color: "#f87171" },
+      { id: 2, name: "STA-3", class: "fast", weight: 3.0, dist: 12.0, softMs: 500, ceilingS: 6.0, color: "#f59e0b" },
+      { id: 3, name: "STA-4", class: "routine", weight: 1.0, dist: 18.0, softMs: 1000, ceilingS: 20.0, color: "#10b981" }
+    ];
+
+    const TIMELINE_EVENTS = [
+      { t: 0, text: "Nominal operating conditions across all 4 nodes" },
+      { t: 20, text: "Co-channel interferer ACTIVE near STA-4 (packet loss rises)" },
+      { t: 45, text: "Interferer OFF; STA-4 begins walking towards cell edge (1.0 m/s)" },
+      { t: 70, text: "FAULT INJECTED: Urgent STA-2 unreachable (link failure)" },
+      { t: 100, text: "FAULT CLEARED: STA-2 reconnected; rapid AoI discharge priority" },
+      { t: 120, text: "Scenario complete" }
+    ];
+
+    // State Variables
+    let isPlaying = true;
+    let playbackSpeed = 2.0;
+    let currentSlot = 0;
+    const totalSlots = 1200; // 120s @ 0.1s/slot
+    let sideBySideMode = false;
+
+    // Simulation Data Store (synthetic playback simulation engine for self-contained operation)
+    let simulationRuns = { dqn: [], cag: [], rr: [] };
+
+    function initSimulationData() {
+      ['dqn', 'cag', 'rr'].forEach(policy => {
+        let aois = [0.0, 0.0, 0.0, 0.0];
+        let run = [];
+        let totalGrants = 0, successfulGrants = 0, shieldCount = 0, wastedCount = 0;
+
+        for (let s = 0; s < totalSlots; s++) {
+          const t = s * 0.1;
+          // Apply time growth
+          for (let i = 0; i < 4; i++) aois[i] += 0.1;
+
+          // Event conditions
+          const interfererOn = t >= 20.0 && t < 45.0;
+          const sta4Distance = (t >= 45.0 && t < 70.0) ? 18.0 + (t - 45.0) * 1.0 : 18.0;
+          const sta2Dead = t >= 70.0 && t < 100.0;
+
+          // Policy decision
+          let granted = 0;
+          let shieldFired = false;
+
+          // Shield logic (Urgent ceiling = 2.0s)
+          if ((aois[0] >= 1.8 || aois[1] >= 1.8) && !sta2Dead) {
+            shieldFired = true;
+            shieldCount++;
+            granted = (aois[0] >= aois[1]) ? 0 : 1;
+          } else if (policy === 'rr') {
+            granted = s % 4;
+          } else if (policy === 'cag') {
+            // Channel-aware greedy
+            let scores = aois.map((a, idx) => a * NODES[idx].weight);
+            if (interfererOn) scores[3] *= 0.5;
+            if (sta2Dead) scores[1] = -1;
+            granted = scores.indexOf(Math.max(...scores));
+          } else {
+            // DQN policy
+            let scores = aois.map((a, idx) => Math.pow(a, 1.2) * NODES[idx].weight);
+            if (sta2Dead) scores[1] = -1;
+            granted = scores.indexOf(Math.max(...scores));
+          }
+
+          // Channel outcome
+          totalGrants++;
+          let pdr = 0.98;
+          if (interfererOn && granted === 3) pdr = 0.75;
+          if (sta4Distance > 25.0 && granted === 3) pdr = 0.60;
+          if (sta2Dead && granted === 1) pdr = 0.0;
+
+          const success = Math.random() < pdr;
+          if (success) {
+            successfulGrants++;
+            aois[granted] = 0.05 + Math.random() * 0.03; // delivered age
+          } else {
+            wastedCount++;
+          }
+
+          const cwAoI = aois.reduce((acc, a, idx) => acc + a * NODES[idx].weight, 0.0) / 4.0;
+
+          run.push({
+            slot: s,
+            t: t,
+            granted: granted,
+            shieldFired: shieldFired,
+            success: success,
+            aois: [...aois],
+            cwAoI: cwAoI,
+            pdr: (successfulGrants / totalGrants) * 100.0,
+            shieldCount: shieldCount,
+            shieldPct: (shieldCount / totalGrants) * 100.0,
+            wasted: wastedCount,
+            interfererOn: interfererOn,
+            sta4Distance: sta4Distance,
+            sta2Dead: sta2Dead
+          });
+        }
+        simulationRuns[policy] = run;
+      });
+    }
+
+    initSimulationData();
+
+    // Setup AoI Bars in DOM
+    const aoiBarsContainer = document.getElementById("aoiBarsContainer");
+    NODES.forEach(n => {
+      const item = document.createElement("div");
+      item.className = "aoi-bar-item";
+      item.innerHTML = `
+        <div class="aoi-bar-header">
+          <span><strong>${n.name}</strong> (${n.class.toUpperCase()}, w=${n.weight})</span>
+          <span id="aoiVal_${n.id}">0.00 s</span>
+        </div>
+        <div class="aoi-bar-outer">
+          <div class="threshold-marker" style="left: ${(n.softMs / 1000) / n.ceilingS * 100}%;"></div>
+          <div class="ceiling-marker" style="left: 98%;"></div>
+          <div class="aoi-bar-fill" id="aoiFill_${n.id}" style="background-color: ${n.color};"></div>
+        </div>
+      `;
+      aoiBarsContainer.appendChild(item);
+    });
+
+    // Setup Side-by-Side Mini Bars
+    ['rr', 'cag', 'dqn'].forEach(pol => {
+      const container = document.getElementById(`sbsBars_${pol}`);
+      NODES.forEach(n => {
+        const mini = document.createElement("div");
+        mini.style.marginBottom = "6px";
+        mini.innerHTML = `
+          <div style="display:flex; justify-content:space-between; font-size:0.75rem;">
+            <span>${n.name}</span>
+            <span id="sbsVal_${pol}_${n.id}">0.00s</span>
+          </div>
+          <div style="width:100%; height:6px; background:#090d16; border-radius:3px; overflow:hidden;">
+            <div id="sbsFill_${pol}_${n.id}" style="height:100%; width:0%; background:${n.color};"></div>
+          </div>
+        `;
+        container.appendChild(mini);
+      });
+    });
+
+    // Canvas Elements
+    const topoCanvas = document.getElementById("topologyCanvas");
+    const topoCtx = topoCanvas.getContext("2d");
+    const sawCanvas = document.getElementById("sawtoothCanvas");
+    const sawCtx = sawCanvas.getContext("2d");
+
+    // Render Topology
+    function renderTopology(frame) {
+      const w = topoCanvas.width;
+      const h = topoCanvas.height;
+      topoCtx.clearRect(0, 0, w, h);
+
+      const cx = w / 2;
+      const cy = h / 2;
+
+      // Draw AP at center
+      topoCtx.fillStyle = "#38bdf8";
+      topoCtx.beginPath();
+      topoCtx.arc(cx, cy, 14, 0, Math.PI * 2);
+      topoCtx.fill();
+      topoCtx.fillStyle = "#fff";
+      topoCtx.font = "bold 9px sans-serif";
+      topoCtx.textAlign = "center";
+      topoCtx.fillText("AP", cx, cy + 3);
+
+      // Node Positions
+      const angles = [Math.PI * 1.25, Math.PI * 0.75, Math.PI * 1.75, Math.PI * 0.25];
+      const baseRadii = [60, 90, 120, 150];
+
+      NODES.forEach((n, idx) => {
+        let r = baseRadii[idx];
+        if (n.id === 3 && frame.sta4Distance > 18.0) {
+          r = baseRadii[idx] + (frame.sta4Distance - 18.0) * 2.5;
+        }
+
+        const nx = cx + Math.cos(angles[idx]) * r;
+        const ny = cy + Math.sin(angles[idx]) * r;
+
+        // Draw grant beam if granted
+        if (frame.granted === n.id) {
+          topoCtx.strokeStyle = frame.shieldFired ? "#ef4444" : "#38bdf8";
+          topoCtx.lineWidth = 3;
+          topoCtx.setLineDash([4, 2]);
+          topoCtx.beginPath();
+          topoCtx.moveTo(cx, cy);
+          topoCtx.lineTo(nx, ny);
+          topoCtx.stroke();
+          topoCtx.setLineDash([]);
+        }
+
+        // Draw Node
+        topoCtx.beginPath();
+        topoCtx.arc(nx, ny, 12, 0, Math.PI * 2);
+        if (n.id === 1 && frame.sta2Dead) {
+          topoCtx.fillStyle = "#475569"; // Dead node
+        } else {
+          topoCtx.fillStyle = n.color;
+        }
+        topoCtx.fill();
+
+        // Node Label
+        topoCtx.fillStyle = "#fff";
+        topoCtx.font = "bold 8px sans-serif";
+        topoCtx.fillText(n.name, nx, ny + 3);
+
+        // Distance label
+        topoCtx.fillStyle = "#94a3b8";
+        topoCtx.font = "7px sans-serif";
+        const distText = (n.id === 3) ? `${frame.sta4Distance.toFixed(1)}m` : `${n.dist}m`;
+        topoCtx.fillText(distText, nx, ny + 15);
+      });
+
+      // Draw Interferer Indicator if active
+      if (frame.interfererOn) {
+        const ix = cx + Math.cos(angles[3]) * 175;
+        const iy = cy + Math.sin(angles[3]) * 175;
+        topoCtx.fillStyle = "#ef4444";
+        topoCtx.beginPath();
+        topoCtx.arc(ix, iy, 8, 0, Math.PI * 2);
+        topoCtx.fill();
+        topoCtx.fillStyle = "#fca5a5";
+        topoCtx.font = "bold 7px sans-serif";
+        topoCtx.fillText("JAMMER", ix, iy - 10);
+      }
+    }
+
+    // Render Sawtooth Trajectory
+    function renderSawtooth(policy, currentS) {
+      const w = sawCanvas.width;
+      const h = sawCanvas.height;
+      sawCtx.clearRect(0, 0, w, h);
+
+      // Grid lines
+      sawCtx.strokeStyle = "#1e293b";
+      sawCtx.lineWidth = 1;
+      for (let y = 0; y < h; y += 40) {
+        sawCtx.beginPath();
+        sawCtx.moveTo(0, y);
+        sawCtx.lineTo(w, y);
+        sawCtx.stroke();
+      }
+
+      const run = simulationRuns[policy];
+      const windowSlots = 300; // 30s
+      const startS = Math.max(0, currentS - windowSlots);
+      const endS = Math.min(run.length - 1, startS + windowSlots);
+      const maxAoI = 8.0; // scale limit
+
+      NODES.forEach((n, idx) => {
+        sawCtx.strokeStyle = n.color;
+        sawCtx.lineWidth = 1.5;
+        sawCtx.beginPath();
+
+        for (let s = startS; s <= currentS; s++) {
+          const x = ((s - startS) / windowSlots) * w;
+          const aoi = run[s].aois[idx];
+          const y = h - (aoi / maxAoI) * h;
+
+          if (s === startS) sawCtx.moveTo(x, y);
+          else sawCtx.lineTo(x, y);
+        }
+        sawCtx.stroke();
+      });
+    }
+
+    // Update Dashboard Frame
+    function updateFrame() {
+      const activePolicy = document.getElementById("policySelect").value;
+      const frame = simulationRuns[activePolicy][currentSlot];
+      if (!frame) return;
+
+      // Update Ticker
+      document.getElementById("tickerTime").innerText = `t = ${frame.t.toFixed(1)}s`;
+      const activeEv = [...TIMELINE_EVENTS].reverse().find(ev => frame.t >= ev.t);
+      if (activeEv) document.getElementById("tickerEvent").innerText = activeEv.text;
+
+      // Update Time Display & Scrubber
+      const mins = Math.floor(frame.t / 60);
+      const secs = Math.floor(frame.t % 60);
+      document.getElementById("timeDisplay").innerText = 
+        `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')} / 02:00`;
+      document.getElementById("timeScrubber").value = frame.t;
+
+      // Update KPIs
+      document.getElementById("kpiCwAoI").innerText = `${frame.cwAoI.toFixed(2)} s`;
+      document.getElementById("kpiShieldCount").innerText = `${frame.shieldCount} (${frame.shieldPct.toFixed(1)}%)`;
+      document.getElementById("kpiPdr").innerText = `${frame.pdr.toFixed(1)}%`;
+      document.getElementById("kpiWasted").innerText = frame.wasted;
+
+      // Update Shield Alert
+      const shieldEl = document.getElementById("shieldAlert");
+      shieldEl.style.display = frame.shieldFired ? "inline" : "none";
+
+      // Update AoI Bars
+      NODES.forEach((n, idx) => {
+        const val = frame.aois[idx];
+        document.getElementById(`aoiVal_${n.id}`).innerText = `${val.toFixed(2)} s`;
+        const pct = Math.min(100, (val / n.ceilingS) * 100);
+        const fill = document.getElementById(`aoiFill_${n.id}`);
+        fill.style.width = `${pct}%`;
+        fill.style.backgroundColor = (val >= n.ceilingS) ? "#dc2626" : n.color;
+      });
+
+      // Render Visualizations
+      renderTopology(frame);
+      renderSawtooth(activePolicy, currentSlot);
+
+      // Side-by-Side Sync Update
+      if (sideBySideMode) {
+        ['rr', 'cag', 'dqn'].forEach(pol => {
+          const f = simulationRuns[pol][currentSlot];
+          if (!f) return;
+          document.getElementById(`sbsCwAoI_${pol}`).innerText = `${f.cwAoI.toFixed(2)} s`;
+          document.getElementById(`sbsPdr_${pol}`).innerText = `${f.pdr.toFixed(1)}%`;
+          if (pol === 'dqn') {
+            document.getElementById(`sbsShield_dqn`).innerText = `${f.shieldCount}`;
+          } else {
+            document.getElementById(`sbsWasted_${pol}`).innerText = `${f.wasted}`;
+          }
+
+          NODES.forEach((n, idx) => {
+            const v = f.aois[idx];
+            document.getElementById(`sbsVal_${pol}_${n.id}`).innerText = `${v.toFixed(2)}s`;
+            const p = Math.min(100, (v / n.ceilingS) * 100);
+            document.getElementById(`sbsFill_${pol}_${n.id}`).style.width = `${p}%`;
+          });
+        });
+      }
+
+      // Advance Slot
+      if (isPlaying) {
+        currentSlot = (currentSlot + 1) % totalSlots;
+      }
+    }
+
+    // Animation Loop
+    let timer = setInterval(updateFrame, 100 / playbackSpeed);
+
+    function resetTimer() {
+      clearInterval(timer);
+      timer = setInterval(updateFrame, 100 / playbackSpeed);
+    }
+
+    // Event Handlers
+    document.getElementById("btnPlayPause").addEventListener("click", () => {
+      isPlaying = !isPlaying;
+      document.getElementById("btnPlayPause").innerText = isPlaying ? "Pause" : "Play";
+    });
+
+    document.getElementById("btnRestart").addEventListener("click", () => {
+      currentSlot = 0;
+      updateFrame();
+    });
+
+    document.getElementById("speedSelect").addEventListener("change", (e) => {
+      playbackSpeed = parseFloat(e.target.value);
+      resetTimer();
+    });
+
+    document.getElementById("timeScrubber").addEventListener("input", (e) => {
+      currentSlot = Math.floor(parseFloat(e.target.value) / 0.1);
+      updateFrame();
+    });
+
+    document.getElementById("btnToggleSideBySide").addEventListener("click", () => {
+      sideBySideMode = !sideBySideMode;
+      document.getElementById("sideBySideContainer").style.display = sideBySideMode ? "block" : "none";
+      document.getElementById("btnToggleSideBySide").classList.toggle("secondary");
+    });
+  </script>
+</body>
+</html>
