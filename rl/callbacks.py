@@ -18,7 +18,7 @@ class PeriodicEvalCallback(BaseCallback):
         super().__init__(verbose)
         self._sys_cfg = sys_cfg
         self._meas_cfg = meas_cfg
-        self._eval_seeds = sys_cfg["rl"]["eval_seeds"]
+        self._eval_seeds = sys_cfg["rl"].get("validation_seeds", sys_cfg["rl"]["eval_seeds"])
         self._eval_freq = eval_freq
         self._weights = np.array(
             [sys_cfg["scheduler"]["weights"][c] for c in sys_cfg["system"]["node_classes"]]

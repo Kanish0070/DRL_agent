@@ -1,3 +1,5 @@
+> **Note:** All results presented here reflect simulation under assumed channel parameters, pending a real hardware campaign.
+
 # AoI DRL Scheduler
 
 DRL-Based Age-of-Information-Aware Cross-Layer Scheduler for mixed-criticality wireless IoT networks.

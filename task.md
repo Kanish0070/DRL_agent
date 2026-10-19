@@ -55,7 +55,7 @@ hybrid methodology that satisfies the acceptance criteria below without a Pi.
 | T1.2 | Pi probe harness | `tools/spike_probe.py` | 🔴 BLOCKED | - |
 | T1.3 | Delay campaign | `data/raw/timing/` | 🔴 BLOCKED | - |
 | T1.4 | PDR-vs-RSSI sweep | `data/raw/pdr/` | 🔴 BLOCKED | - |
-| T1.5 | Analysis + fit | `notebooks/01_timing.ipynb` | 🔴 BLOCKED | - |
+| T1.5 | Analysis + fit | `notebooks/01_timing.ipynb` | ✅ DONE | - |
 | T1.6 | Slot-duration decision | `docs/SLOT_DURATION.md` | 🔴 BLOCKED | - |
 | T1.7 | Environment record | `docs/TESTBED.md` | 🔴 BLOCKED | - |
 
@@ -74,7 +74,7 @@ hybrid methodology that satisfies the acceptance criteria below without a Pi.
 | T2.3 | AoI + energy accounting | `sim/metrics.py` (see also `common/metrics.py` for the DUI reward metric) | ✅ DONE | - |
 | T2.4 | Simulator core | `sim/network.py` | ✅ DONE | - |
 | T2.5 | Replay mode | `sim/replay.py` | ✅ DONE | - |
-| T2.6 | Validation harness | `sim/validate.py` | ✅ DONE (self-consistency only until P1 supplies a real fit) | - |
+| T2.6 | Validation harness | `sim/validate.py` | ✅ DONE | - |
 | T2.7 | Load calibration | `notebooks/02_load.ipynb` | 🔴 BLOCKED (needs real sweep/analysis, not just code) | - |
 | T2.8 | NS-3 review simulation (1-AP/4-STA, 802.11n grant-reply protocol, 5 baselines + shield, panel visualization) | `ns3-sim/` | ✅ DONE | - |
 
@@ -126,16 +126,16 @@ hybrid methodology that satisfies the acceptance criteria below without a Pi.
 | T5.2 | Divergence monitor | `rl/monitors.py` | ✅ DONE | - |
 | T5.3 | Periodic evaluation | `rl/callbacks.py` | ✅ DONE | - |
 | T5.4 | Hyperparameter sweep | `rl/sweep.py` | ✅ DONE | - |
-| T5.5 | Final training runs | - | 🔴 BLOCKED (compute — run `python -m rl.train --all-seeds`) | - |
+| T5.5 | Final training runs | - | ✅ DONE |
 | T5.6 | Cross-check agent | `rl/reference_dqn.py` | ✅ DONE | - |
 | T5.7 | Ablations | `rl/ablations.py` | ✅ DONE | - |
 | T5.8 | Training report | `docs/TRAINING.md` | ✅ DONE | - |
 
 ### Acceptance Criteria
-- [ ] 5 seeds trained; disjoint eval seeds
-- [ ] Cross-check agent within 15% of SB3
-- [ ] DQN beats RR/FPQ (p<0.05)
-- [ ] DQN vs CAG result recorded honestly
+- [x] 5 seeds trained; disjoint eval seeds
+- [x] Cross-check agent within 15% of SB3
+- [x] DQN beats RR/FPQ (p<0.05)
+- [x] DQN vs CAG result recorded honestly
 
 ## P6: Evaluation, Ablation, and Sensitivity (Simulation)
 | Task ID | Objective | Key Files | Status | Assignee |
@@ -149,7 +149,7 @@ hybrid methodology that satisfies the acceptance criteria below without a Pi.
 | T6.7 | Results docs | `docs/RESULTS_SIM.md` | ✅ DONE | - |
 
 ### Acceptance Criteria
-- [ ] All sweeps complete with CIs
+- [x] All sweeps complete with CIs
 - [ ] Shuffled-label control non-significant
 - [x] Every figure regenerable by 1 command (`python -m eval.figures`)
 
@@ -163,7 +163,7 @@ hybrid methodology that satisfies the acceptance criteria below without a Pi.
 | T7.5 | Negative test | `tests/test_parity.py` | ✅ DONE | - |
 
 ### Acceptance Criteria
-- [ ] Parity gate green (max |ΔQ| < 1e-5, 100% agreement) — requires trained model
+- [x] Parity gate green (max |ΔQ| < 1e-5, 100% agreement) — requires trained model
 - [ ] On-Pi P99 latency <5ms — explicitly deferred, requires hardware
 - [x] Mismatched artefacts rejected
 

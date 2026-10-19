@@ -46,7 +46,9 @@ class DivergenceMonitor(BaseCallback):
         # Check Q-values from the policy's predict on a random batch of observations
         try:
             import torch
-            obs_sample = np.random.default_rng(42).random((16, 16)).astype(np.float32)
+            obs_sample = self.locals.get("new_obs")
+            if obs_sample is None:
+                obs_sample = np.random.default_rng(42).random((16, 16)).astype(np.float32)
             obs_tensor = torch.tensor(obs_sample)
             with torch.no_grad():
                 q_vals = self.model.q_net(obs_tensor).numpy()

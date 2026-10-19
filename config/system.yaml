@@ -19,7 +19,7 @@ scheduler:
     routine: 1000
   queue_discipline: "lcfs"
   queue_size: 1
-  heartbeat_period_s: 2.0
+  heartbeat_period_s: 0.5
   n_degraded: 3
   n_fail: 5
   shield_ceilings_s:
@@ -44,7 +44,30 @@ rl:
   lambda_waste: 0.0
   episode_length: 1000
   train_seeds: [0, 1, 2, 3, 4]
-  eval_seeds: [100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119]
+  validation_seeds: [200, 201, 202, 203, 204]
+  eval_seeds:
+    [
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119,
+    ]
 
 network:
   wifi_ps_mode: "NONE"

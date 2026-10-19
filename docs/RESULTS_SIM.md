@@ -9,4 +9,4 @@
 - Evaluated at `distances_m` [10.0, 20.0, 30.0, 40.0] as requested. Results stubbed.
 
 ## Statistics
-- Shuffled-label control confirmed non-significant (p >= 0.05).
+- Shuffled-label control: Pending (evaluations not yet run).

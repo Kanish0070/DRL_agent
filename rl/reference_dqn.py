@@ -108,7 +108,7 @@ def train(seed: int, timesteps: int, sys_cfg: dict, meas_cfg: dict) -> float:
         next_obs, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
         buf.push(obs, action, reward, next_obs, float(done))
-        obs = next_obs if not done else env.reset(seed=rng.integers(0, 2**31))[0]
+        obs = next_obs if not done else env.reset(seed=int(rng.integers(0, 2**31)))[0]
 
         if len(buf) >= batch_size:
             batch = buf.sample(batch_size)

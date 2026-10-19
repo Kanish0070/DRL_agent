@@ -37,7 +37,7 @@ from sim.queue import NodeQueue
 
 # Radial placement matching ns3-sim/aoi-scheduler-sim.cc, used as the
 # default distance set until P1/T2.7 freeze real calibrated load points.
-DEFAULT_DISTANCES_M = np.array([5.0, 8.0, 12.0, 18.0])
+DEFAULT_DISTANCES_M = np.array([30.0, 36.0, 42.0, 50.0])
 
 
 @dataclass

@@ -40,7 +40,7 @@ class ChannelParams:
     # dBm range; it cancels out of every relative comparison the project
     # makes (PDR-vs-RSSI, weighted-AoI, ...), so an assumed constant here
     # does not bias any result.
-    tx_power_dbm: float = 20.0
+    tx_power_dbm: float = 10.0
 
     @classmethod
     def from_measured_params(cls, measured_params: dict) -> "ChannelParams":
