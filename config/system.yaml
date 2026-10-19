@@ -44,6 +44,7 @@ rl:
   lambda_waste: 0.0
   episode_length: 1000
   train_seeds: [0, 1, 2, 3, 4]
+  validation_seeds: [200, 201, 202, 203, 204]
   eval_seeds:
     [
       100,

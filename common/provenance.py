@@ -1,8 +1,9 @@
+import os
 import subprocess
 import hashlib
 import json
 import socket
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any
 
@@ -40,14 +41,14 @@ def get_config_hash() -> str:
     encoded = json.dumps(config, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:8]
 
-def generate_run_meta(policy_id: str, seed: int) -> Dict[str, Any]:
+def generate_run_meta(policy_id: str, seed: int, model_path: str = None) -> Dict[str, Any]:
     """
     Generates the provenance metadata for a run, saving it to run_meta.json.
     Ensures every recorded experiment is traceable.
     """
     git_prov = get_git_provenance()
-    return {
-        "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+    meta = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "host": socket.gethostname(),
         "git_sha": git_prov["git_sha"],
         "is_dirty": git_prov["is_dirty"],
@@ -57,11 +58,16 @@ def generate_run_meta(policy_id: str, seed: int) -> Dict[str, Any]:
         "policy_id": policy_id,
         "seed": seed
     }
+    if model_path and os.path.exists(model_path):
+        with open(model_path, "rb") as mf:
+            meta["model_path"] = model_path
+            meta["model_sha256"] = hashlib.sha256(mf.read()).hexdigest()
+    return meta
 
-def write_run_meta(run_dir: Path, policy_id: str, seed: int):
+def write_run_meta(run_dir: Path, policy_id: str, seed: int, model_path: str = None):
     """Writes the metadata to the specified run directory."""
     run_dir = Path(run_dir)
-    meta = generate_run_meta(policy_id, seed)
+    meta = generate_run_meta(policy_id, seed, model_path)
     run_dir.mkdir(parents=True, exist_ok=True)
     with open(run_dir / "run_meta.json", "w") as f:
         json.dump(meta, f, indent=2)

@@ -33,6 +33,7 @@ def main():
                 "python", "-m", "eval.run", 
                 "--scheduler", "dqn", 
                 "--model-path", model_path,
+                "--train-seed", str(t_seed),
                 "--seed", str(e_seed), 
                 "--out-dir", "results"
             ]

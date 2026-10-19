@@ -42,6 +42,8 @@ logs/
 data/raw/
 models/
 experiments/runs/
+sensitivity_results/
+results_test/
 
 # IDEs
 .vscode/

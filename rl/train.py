@@ -10,7 +10,7 @@ import os
 from stable_baselines3 import DQN
 
 from common.config import load_measured_params, load_system_config
-from common.provenance import write_run_meta
+from common.provenance import write_run_meta, get_config_hash
 from rl.callbacks import PeriodicEvalCallback
 from rl.env import AoiSchedulerEnv
 from rl.monitors import DivergenceMonitor
@@ -22,7 +22,10 @@ def train_one(seed: int, sys_cfg: dict, meas_cfg: dict) -> str:
     # Verify seed disjoint invariant at runtime (also asserted in tests).
     train_set = set(rl_cfg["train_seeds"])
     eval_set = set(rl_cfg["eval_seeds"])
+    val_set = set(rl_cfg.get("validation_seeds", []))
     assert train_set.isdisjoint(eval_set), "train_seeds and eval_seeds overlap!"
+    assert train_set.isdisjoint(val_set), "train_seeds and validation_seeds overlap!"
+    assert val_set.isdisjoint(eval_set), "validation_seeds and eval_seeds overlap!"
 
     env = AoiSchedulerEnv(sys_cfg, meas_cfg, seed=seed)
 
@@ -38,14 +41,14 @@ def train_one(seed: int, sys_cfg: dict, meas_cfg: dict) -> str:
         exploration_final_eps=rl_cfg["eps_end"],
         exploration_fraction=rl_cfg["eps_fraction"],
         policy_kwargs={"net_arch": rl_cfg["net_arch"]},
-        tensorboard_log="runs/",
+        tensorboard_log=f"runs/cfg_{get_config_hash()}",
         seed=seed,
         device="cuda",
         verbose=0,
     )
 
     callbacks = [
-        DivergenceMonitor(sys_cfg),
+        DivergenceMonitor(sys_cfg, stop_on_divergence=True),
         PeriodicEvalCallback(sys_cfg, meas_cfg),
     ]
 
@@ -54,7 +57,7 @@ def train_one(seed: int, sys_cfg: dict, meas_cfg: dict) -> str:
     os.makedirs("models", exist_ok=True)
     model_path = f"models/dqn_seed{seed}"
     model.save(model_path)
-    write_run_meta(f"models/dqn_seed{seed}", policy_id="dqn", seed=seed)
+    write_run_meta(f"models/dqn_seed{seed}_meta", policy_id="dqn", seed=seed, model_path=f"models/dqn_seed{seed}.zip")
     print(f"[train] Saved model -> {model_path}.zip")
     return model_path
 

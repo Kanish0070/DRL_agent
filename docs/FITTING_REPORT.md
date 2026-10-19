@@ -6,7 +6,8 @@
 **Methodology:** Mathematical extraction from synthetic/proxy datasets.
 **Output File:** `config/measured_params_fitted.yaml`
 
-This document serves as the formal record of how the simulation environment (`NetworkSim`) was mathematically calibrated using external datasets before commencing Deep Reinforcement Learning (DRL) training.
+This document outlines the parameter ranges consistent with literature and external datasets.
+**Note:** The current parameters in config/measured_params.yaml are placeholders pending the real P1 hardware campaign. No automated fit script has been run against raw data yet.
 
 ---
 
