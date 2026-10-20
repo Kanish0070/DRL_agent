@@ -7,9 +7,9 @@ set -euo pipefail
 
 NS3_VERSION="3.41"
 NS3_HOME="${NS3_HOME:-$HOME/ns3}"
-NS3_DIR="${NS3_HOME}/ns-allinone-${NS3_VERSION}/ns-${NS3_VERSION}"
+NS3_DIR="${NS3_DIR:-${NS3_HOME}/ns-allinone-${NS3_VERSION}/ns-${NS3_VERSION}}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RESULTS_ROOT="${PROJECT_ROOT}/ns3-sim/results"
+RESULTS_ROOT="${RESULTS_ROOT:-${PROJECT_ROOT}/results/ns3_campaign}"
 CONFIG_FILE="${PROJECT_ROOT}/config/system.yaml"
 ARTIFACTS_DIR="${PROJECT_ROOT}/deploy/artifacts"
 
@@ -77,7 +77,7 @@ for sc in "${SCENARIOS[@]}"; do
         for s in "${SEEDS[@]}"; do
             OUT_DIR="${RESULTS_ROOT}/${sc}/${pol}/seed${s}"
             mkdir -p "${OUT_DIR}"
-            echo "${NS3_DIR} ${OUT_DIR}/log.csv --scheduler=${pol} --policyId=${pol} --seed=${s} ${SC_FLAGS}" >> "${JOB_FILE}"
+            echo "--scheduler=${pol} --policyId=${pol} --seed=${s} ${SC_FLAGS} --csvOutput=${OUT_DIR}/log.csv" >> "${JOB_FILE}"
         done
     done
 
@@ -91,7 +91,7 @@ for sc in "${SCENARIOS[@]}"; do
         for s in "${SEEDS[@]}"; do
             OUT_DIR="${RESULTS_ROOT}/${sc}/${POL_ID}/seed${s}"
             mkdir -p "${OUT_DIR}"
-            echo "${NS3_DIR} ${OUT_DIR}/log.csv --scheduler=dqn --policyFile=${TXT_FILE} --policyId=${POL_ID} --seed=${s} ${SC_FLAGS}" >> "${JOB_FILE}"
+            echo "--scheduler=dqn --policyFile=${TXT_FILE} --policyId=${POL_ID} --seed=${s} ${SC_FLAGS} --csvOutput=${OUT_DIR}/log.csv" >> "${JOB_FILE}"
         done
     done
 done
@@ -99,20 +99,15 @@ done
 TOTAL_JOBS=$(wc -l < "${JOB_FILE}")
 echo "Generated ${TOTAL_JOBS} evaluation runs in queue."
 
-# Worker execution function
-run_single_sim() {
-    local ns3_dir="$1"
-    local csv_out="$2"
-    shift 2
-    local extra_args="$*"
-
-    (cd "${ns3_dir}" && ./ns3 run "scratch/aoi-scheduler/aoi-scheduler-sim --enableNetAnim=false --csvOutput=${csv_out} ${extra_args}") > /dev/null 2>&1
-    echo "[COMPLETED] ${csv_out}"
-}
-export -f run_single_sim
-
-# Run in parallel using xargs
-xargs -P "${N_CORES}" -n 3 -a "${JOB_FILE}" bash -c 'run_single_sim "$0" "$1" "$2"'
+# Run the prebuilt simulator binary directly (one process per job, in parallel).
+SIM_BIN="$(ls "${NS3_DIR}"/build/scratch/aoi-scheduler/ns3*-aoi-scheduler-sim-* 2>/dev/null | head -n1)"
+if [ -z "${SIM_BIN}" ]; then
+    (cd "${NS3_DIR}" && ./ns3 build scratch/aoi-scheduler/aoi-scheduler-sim)
+    SIM_BIN="$(ls "${NS3_DIR}"/build/scratch/aoi-scheduler/ns3*-aoi-scheduler-sim-* | head -n1)"
+fi
+echo "Simulator binary: ${SIM_BIN}"
+export SIM_BIN
+xargs -P "${N_CORES}" -I{} bash -c '"${SIM_BIN}" --enableNetAnim=false {} > /dev/null 2>&1 || echo "[FAILED] {}"' < "${JOB_FILE}"
 
 echo "========================================================"
 echo " All simulation runs completed."
@@ -120,7 +115,7 @@ echo " Generating gap analysis and figures..."
 echo "========================================================"
 
 cd "${PROJECT_ROOT}"
-python3 -m eval.figures --results-root "${RESULTS_ROOT}" || true
+python3 tools/ns3_summarize.py --results-root "${RESULTS_ROOT}"
 
 echo "========================================================"
 echo " Campaign complete! Results stored under ${RESULTS_ROOT}"

@@ -1,0 +1,7 @@
+family,recovery_s,recovery_max_s,others_peak_aoi_s,grants_to_dead_node_pct
+cag,1.32,2.3,1.12041,1.95
+dqn,1.32,2.3,15.6494,1.83667
+fpq,1.32,2.3,20.0004,2
+maxweight,1.32,2.3,1.10041,2
+random,1.32,2.3,2.01041,1.73333
+rr,1.32,2.3,0.301455,2
