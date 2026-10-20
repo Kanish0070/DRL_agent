@@ -51,7 +51,11 @@ def validate_aoi_recomputation(df: pd.DataFrame) -> list[str]:
         return errors
 
     t_slot = df["timestamp_pi"].diff().median()
-    recomputed_aoi = [0.0] * N_NODES
+    # Initial condition: the simulator starts every node at AoI 0 at slot 0 and the CSV's first logged
+    # row is slot `first_slot`, so nodes that have not yet delivered have already aged
+    # (first_slot - 1) slots before that row's own update is applied.
+    first_slot = int(df["slot_id"].iloc[0])
+    recomputed_aoi = [max(first_slot - 1, 0) * t_slot] * N_NODES
     max_error = 0.0
 
     for _, row in df.iterrows():
