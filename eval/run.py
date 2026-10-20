@@ -18,40 +18,62 @@ from schedulers.random_scheduler import RandomScheduler
 from schedulers.oracle import OracleScheduler
 from rl.shield import apply_safety_shield
 
-def get_scheduler(name: str, sys_cfg: dict, meas_cfg: dict):
+def get_scheduler(name: str, sys_cfg: dict, meas_cfg: dict, seed: int = None):
     if name == "rr": return RoundRobinScheduler()
     if name == "fpq": return FixedPriorityScheduler(sys_cfg["system"]["node_classes"])
     if name == "maxweight": return MaxWeightScheduler()
     if name == "cag": return ChannelAwareGreedyScheduler(meas_cfg)
-    if name == "random": return RandomScheduler()
+    if name == "random": return RandomScheduler(seed=seed)
     if name == "oracle": return OracleScheduler()
     raise ValueError(f"Unknown scheduler {name}")
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--scheduler", required=True, choices=["rr", "fpq", "maxweight", "cag", "random", "oracle", "dqn"])
+    parser.add_argument("--train-seed", type=int, help="Training seed for DQN models")
     parser.add_argument("--model-path", help="Path to DQN model if scheduler is dqn")
     parser.add_argument("--n-slots", type=int, help="Override episode_length")
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--out-dir", default="results")
+    parser.add_argument("--distances", type=float, nargs=4, help="Override node distances")
+    parser.add_argument("--r50", type=float, help="Override logistic_r50_dbm")
+    parser.add_argument("--slope", type=float, help="Override logistic_slope_db")
+    parser.add_argument("--burst", type=float, help="Override ge_prob_good_to_bad")
+    parser.add_argument("--arrival", type=float, help="Override arrival_prob")
+
     args = parser.parse_args()
 
     sys_cfg = load_system_config()
     meas_cfg = load_measured_params()
     ep_len = args.n_slots if args.n_slots else sys_cfg["rl"]["episode_length"]
     
-    sim_config = SimConfig.from_configs(sys_cfg, meas_cfg, episode_length=ep_len)
-    sim = NetworkSim(sim_config)
+
+    if args.r50 is not None:
+        meas_cfg["channel"]["logistic_r50_dbm"] = args.r50
+    if args.slope is not None:
+        meas_cfg["channel"]["logistic_slope_db"] = args.slope
+    if args.burst is not None:
+        meas_cfg["channel"]["ge_prob_good_to_bad"] = args.burst
+        
+    arr_prob = args.arrival if args.arrival is not None else 1.0
+    sim_config = SimConfig.from_configs(sys_cfg, meas_cfg, episode_length=ep_len, arrival_prob=arr_prob)
+    
+    if args.distances is not None:
+        sim = NetworkSim(sim_config, distances_m=args.distances)
+    else:
+        sim = NetworkSim(sim_config)
+
     sim.reset(args.seed)
 
-    scheduler = get_scheduler(args.scheduler, sys_cfg, meas_cfg) if args.scheduler != "dqn" else None
+    scheduler = get_scheduler(args.scheduler, sys_cfg, meas_cfg, args.seed) if args.scheduler != "dqn" else None
     if args.scheduler == "dqn":
         from stable_baselines3 import DQN
         model = DQN.load(args.model_path)
     
     shield_ceilings_s = np.array([sys_cfg["scheduler"]["shield_ceilings_s"][c] for c in sys_cfg["system"]["node_classes"]])
     
-    out_dir = Path(args.out_dir) / f"{args.scheduler}_seed{args.seed}"
+    out_name = f"dqn_t{args.train_seed}_seed{args.seed}" if args.scheduler == "dqn" else f"{args.scheduler}_seed{args.seed}"
+    out_dir = Path(args.out_dir) / out_name
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / "log.csv"
     

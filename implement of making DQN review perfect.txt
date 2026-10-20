@@ -1,0 +1,149 @@
+# Implementation Plan: Making the DQN Review Defensible
+
+Consolidated from the audit of `origin/claude/remaining-tasks-review-136444` (53976b5).
+Status: PLAN ONLY. Nothing implemented.
+Goal: a simulation-only review that is honest about assumed channel parameters and rests on sound evaluation.
+
+## Ground rules
+
+- Work on one branch off `origin/claude/remaining-tasks-review-136444` (master lacks the training results).
+- Freeze before running: write the sweep grid and success criteria into `docs/EVAL_PROTOCOL.md` and commit BEFORE generating new results.
+- Report all results, including ones where DQN loses.
+- Seed ranges:
+  - train: 0-4
+  - validation: 200-204 (new; used only by the training callback)
+  - test: 100-119 (untouched during training)
+
+## Phase 0: Truthful documentation (~0.5 day, no code risk)
+
+| #   | Task | Files | Done when |
+|-----|------|-------|-----------|
+| 0.1 | Label all results "simulation under assumed channel parameters" | README.md, docs/RESULTS_SIM.md, docs/TRAINING.md, docs/EVAL_PROTOCOL.md | Every results doc carries the same one-line caveat |
+| 0.2 | Rewrite FITTING_REPORT.md: parameters are placeholders, not "derived from UM-DSI". Rename/remove measured_params_fitted.yaml (identical to placeholder file) | docs/FITTING_REPORT.md, config/ | No claim of a fit remains |
+| 0.3 | Remove "shuffled-label control confirmed" and any other unsupported claim. Set T5.6/T5.7/T5.8 and P6 statuses in task.md to their true state | docs/RESULTS_SIM.md, docs/TRAINING.md, task.md | Every "done" item has an artifact |
+| 0.4 | Record what changed between training campaigns 1-8, 9-13, 14-18 | new docs/TRAINING_HISTORY.md | Each campaign has config diff, outcome, reason kept/dropped; if unrecoverable, say so |
+
+## Phase 1: Evaluation correctness (~1 day)
+
+| #   | Task | Files | Done when |
+|-----|------|-------|-----------|
+| 1.1 | Put train seed in output path, e.g. `dqn_t{train_seed}_seed{eval_seed}` (currently each model overwrites the last) | eval/run.py, tools/run_eval_sweep.py, eval/stats.py (`rsplit("_seed")` parsing) | 5 models x 20 seeds = 100 DQN runs, none overwritten |
+| 1.2 | Seed Random scheduler from the eval seed (currently `seed=None`) | eval/run.py (`get_scheduler`), schedulers/random_scheduler.py | Re-running gives identical Random logs |
+| 1.3 | Add validation seed range; stop training callback using test seeds 100-104 | config/system.yaml, rl/callbacks.py, common/config.py schema, rl/train.py assertion | validation ∩ test = ∅ asserted at runtime and in a test |
+| 1.4 | Save/identify checkpoints (path + hash) in run_meta.json; decide where the 5 .zip files live (LFS, release, or published hashes) | rl/train.py, common/provenance.py, .gitignore | Any result traceable to a specific model file |
+| 1.5 | Replace broken shuffled-label control with real controls: random-action policy, untrained network, shuffled observations | eval/stats.py, docs/EVAL_PROTOCOL.md | Controls can fail; unit test shows they do on fabricated data |
+| 1.6 | Redefine or relabel the Oracle (currently myopic greedy, no shield, worse urgent P99 than Max-Weight) | schedulers/oracle.py, docs | No doc calls it an upper bound unless it is one |
+
+Retraining: not needed for Phase 1, but the 5 original checkpoints (host LAPTOP-3EFJ2P0F) are needed for 1.1.
+If unavailable, retrain all 5 (Phase 3).
+
+## Phase 2: Training-health tooling (~0.5 day)
+
+| #   | Task | Files | Done when |
+|-----|------|-------|-----------|
+| 2.1 | Fix divergence monitor: derive Q bound from real reward scale (or normalise reward first), probe real observations, stop-on-divergence by default, don't swallow exceptions | rl/monitors.py | A synthetic diverging run trips it |
+| 2.2 | Log Q-mean, loss, episode reward per campaign in a consistent place | rl/train.py, rl/callbacks.py | Every run leaves a comparable curve |
+| 2.3 | Stamp config hash on each TensorBoard run directory | rl/train.py | Campaigns are distinguishable |
+
+## Phase 3: Stability check (~1 day compute + 0.5 day analysis)
+
+| #   | Task | Done when |
+|-----|------|-----------|
+| 3.1 | Decide reward normalisation (e.g. scale by 1/W_sum) and gamma (0.95 vs 0.99). Controlled comparison, ONE change at a time, validation seeds only | Table of divergence rate + final validation AoI per setting |
+| 3.2 | Train chosen config on >=10 seeds | Divergence rate stated; only non-diverged runs enter leaderboard, count reported |
+
+Skip 3.1 if only re-evaluating the 5 original checkpoints. Keep 3.2's divergence-rate reporting either way.
+Note: TRAINING_PHASE_PLAN.md says the rl: config is locked after training starts. Changing it needs a documented protocol amendment.
+
+## Phase 4: Pre-declared sensitivity sweep (~2 days) -- main scientific task
+
+Question: is the DQN-vs-Max-Weight tie caused by the easy placeholder environment?
+
+4.1 Freeze the grid in docs/EVAL_PROTOCOL.md BEFORE running. Proposed axes:
+
+| Axis | Values |
+|------|--------|
+| Logistic r50 | -90, -82, -75 dBm |
+| Logistic slope | 2, 4, 8 dB |
+| Node distances | current set; a set spreading nodes across the steep part of the curve |
+| Burst loss | current; 2x worse |
+| Arrival probability | 1.0, 0.5, 0.2 |
+
+Full factorial = 3x3x2x2x3 = 108 cells. If too heavy, freeze a fractional subset with the selection rule written down.
+
+4.2 Build harness: extend eval/run.py and tools/run_eval_sweep.py to accept a scenario spec (parameter overrides);
+write scenario ID into output path and run_meta.json; run DQN + all baselines per cell.
+Decide BEFORE running: evaluate existing DQN in shifted envs (generalisation) vs retrain per regime (capability).
+Suggested: both, for 3-4 headline cells, clearly labelled.
+
+4.3 Analysis (eval/stats.py, eval/figures.py):
+- Paired differences DQN-MaxWeight and DQN-CAG per cell, CIs across eval seeds AND training seeds.
+- Pre-declared equivalence margin so "tie" has a definition (not "p > 0.05").
+- Multiple-comparison correction across cells.
+- Heatmap of gain per cell.
+
+Done when: all cells run, every result reported, and a one-paragraph statement of where DQN helps / ties / loses.
+
+## Phase 5: Deeper results analysis (~1 day; can start on current checkpoints in parallel with Phase 4)
+
+| #   | Task | Done when |
+|-----|------|-----------|
+| 5.1 | Disagreement analysis: on slots where DQN != Max-Weight (~13%), compare outcomes (delivery, AoI change) | Table with counts and net effect |
+| 5.2 | Per-class AoI, urgent-node P99, threshold-violation rate (200/500/1000 ms) alongside weighted mean | Added to leaderboard and figures |
+| 5.3 | Longer eval episodes (e.g. 10k slots) or many short runs for tail metrics; keep training episode_length as is | P99 CIs reported |
+| 5.4 | Run ablations (no-weight, no-DUI, no-shield) on validation seeds, multiple seeds; run from-scratch reference DQN cross-check (T5.6) | docs/TRAINING.md has real numbers, not "stubbed" |
+
+## Phase 6: Write-up and cleanup (~1 day)
+
+- Regenerate all figures from one command (eval/figures.py), assumed-parameters caveat on each.
+- Fill docs/RESULTS_SIM.md and docs/TRAINING.md from actual runs.
+- Update task.md to match artifacts; nothing marked done without one.
+- Minor: replace datetime.utcnow() in common/provenance.py.
+- Merge to master via PR.
+
+## Order and dependencies
+
+    Phase 0 ─┐
+             ├─> Phase 1 ─> Phase 2 ─> Phase 3 ─┐
+             │                                   ├─> Phase 4 ─> Phase 5 ─> Phase 6
+             └────────── (checkpoints?) ─────────┘
+
+- Phases 0 and 1 can start immediately.
+- Phase 4 depends on Phase 1 (fixed paths/seeds) and on 3.1's decision if retraining.
+- Phase 5 can begin on current checkpoints in parallel with Phase 4.
+- Rough total: 7-8 working days including compute. Phases 0-2 plus 5.1/5.2 (~3 days) already resolve every reviewer-visible flaw.
+  Phases 3-4 determine whether a DQN advantage can be claimed.
+
+## Decisions needed
+
+1. Are the original 5 checkpoints recoverable from the training laptop? If not, Phase 3 becomes required.
+2. Sweep breadth: full 108-cell grid, or a smaller frozen subset?
+3. Phase 4 approach: evaluate existing DQN across environments, retrain per regime for headline cells, or both?
+4. Reward normalisation / gamma: may the training config change (needs a documented protocol amendment), or is it locked?
+
+## Risks
+
+- DQN may still tie Max-Weight everywhere. The plan reports this honestly (consistent with decision D6.2: report negative results).
+- Retraining changes the model the current headline numbers describe; keep old results labelled as such.
+- The pytest suite and RL code paths on this branch were not verified (SB3/torch not installed during the audit).
+  Check this first in Phase 1 before anything else changes.
+
+## Issue -> task traceability
+
+| Audit issue | Addressed by |
+|-------------|--------------|
+| DQN ~ Max-Weight (p=0.57) | 4.x, 5.1 |
+| Only 1 of 5 models evaluated | 1.1, 1.4 |
+| Eval seeds 100-104 used in training | 1.3 |
+| Docs claim unbacked results | 0.1-0.3, 6 |
+| Broken shuffled-label control | 1.5 |
+| Wrong Q-value monitor bound | 2.1 |
+| Oracle is not an upper bound | 1.6 |
+| Training stability unproven | 3.1, 3.2 |
+| Undocumented campaign changes | 0.4, 2.3 |
+| Near-trivial problem (arrival prob 1.0) | 4.1 |
+| Urgent-tail behaviour not reported | 5.2 |
+| Short evaluation (1000 slots) | 5.3 |
+| Unexamined DQN/Max-Weight disagreements | 5.1 |
+| Random scheduler not reproducible | 1.2 |
+| utcnow deprecation | 6 |
