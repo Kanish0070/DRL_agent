@@ -49,25 +49,23 @@ trap 'rm -f "${JOB_FILE}"' EXIT
 for sc in "${SCENARIOS[@]}"; do
     # Scenario flag settings
     SC_FLAGS="--slotDuration=${SLOT_DURATION} --simTime=${SIM_TIME}"
+    # Scenario flags. S1/S3 TX powers were chosen from measured RSSI only (never from scheduler results):
+    # S1 puts the far nodes at about -75..-79 dBm (target band -85..-78); S3 lets STA-4's walk reach about -80 dBm
+    # while staying associated (at 0 dBm it loses association at the edge and never rejoins).
     case "$sc" in
-        "S0")
-            # Nominal (5, 8, 12, 18m, 20 dBm)
+        "S0")  # Nominal: 5/8/12/18 m, 20 dBm
             SC_FLAGS="${SC_FLAGS} --txPower=20.0 --distanceScale=1.0"
             ;;
-        "S1")
-            # Weak links (far nodes in sensitive region -85 to -78 dBm)
-            SC_FLAGS="${SC_FLAGS} --txPower=16.0 --distanceScale=1.6"
+        "S1")  # Weak links
+            SC_FLAGS="${SC_FLAGS} --txPower=-5.0 --distanceScale=1.0"
             ;;
-        "S2")
-            # Burst interferer near routine node
-            SC_FLAGS="${SC_FLAGS} --interferer=cochannel --intfStart=30 --intfStop=150 --intfRateMbps=2.0"
+        "S2")  # Co-channel interferer 30-150 s; ~20% extra loss on routine STA-4 while it is on
+            SC_FLAGS="${SC_FLAGS} --interferer=cochannel --intfStart=30 --intfStop=150 --intfRateMbps=2.0 --intfLossNode=3 --intfLoss=0.2"
             ;;
-        "S3")
-            # Routine node walking to edge and back
-            SC_FLAGS="${SC_FLAGS} --mobileNode=3 --mobileSpeed=1.0"
+        "S3")  # Routine STA-4 walks to the cell edge and back (1 m/s)
+            SC_FLAGS="${SC_FLAGS} --txPower=5.0 --mobileNode=3 --mobileSpeed=1.0"
             ;;
-        "S4")
-            # Fault: urgent node 1 down for 30s
+        "S4")  # Fault: urgent STA-2 down 60-90 s
             SC_FLAGS="${SC_FLAGS} --failNode=1 --failAt=60 --recoverAt=90"
             ;;
     esac

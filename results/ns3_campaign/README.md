@@ -30,13 +30,31 @@ from `summary/`, not from prose elsewhere.
   dz are extreme. Read the **relative difference**, not the p-value.
 - **urgent_viol_pct**: percent of slots where an urgent node's AoI is at or above its 2.0 s shield ceiling.
 
+## Simulator changes behind this run (all scheduler-neutral)
+
+1. **Delivery-loss model** (`--lossModel`, default on): logistic success curve in RSSI (R50 -82 dBm, slope 4 dB) times a
+   Gilbert-Elliott burst chain (0.02 / 0.3 / x0.3), the same parameters as `sim/channel.py` and
+   `config/measured_params.yaml`, applied to DATA frames at the AP. S2 adds 20% extra loss on STA-4 while the
+   interferer is on (`--intfLossNode/--intfLoss`).
+2. **Recovery probing**: a node masked as UNREACHABLE is re-granted every 2 s.
+3. **Mobility fix**: the waypoint model was aggregated onto a node that already had a constant-position model and was
+   silently ignored, so S3 never moved STA-4.
+4. **Association/ARP artifacts removed** (they caused dead links in about 30% of S1 runs and dominated the first
+   corrected run): STAs associate at normal power and drop to the scenario TX power at t=0.9 s, beacon-loss
+   de-association is disabled, and ARP entries are static.
+5. **Interferers** are ad-hoc nodes (they were same-SSID access points that STAs associated with).
+
+Scenario TX powers were fixed from measured RSSI, never from scheduler results: S1 -5 dBm (STA-4 about -79 dBm, target band
+-85..-78), S3 5 dBm (STA-4 reaches about -80 dBm at the edge and stays associated).
+Earlier, less-corrected runs of this campaign are in git history; do not use them.
+
 ## Known limitations (read before quoting results)
 
-1. **Scenarios S0-S3 do not stress the link.** Wasted-slot rate is 0.000% in S0-S3 for every policy, so S0, S2 and S3
-   give the same numbers (S1 differs only slightly). The NS-3 channel with HtMcs0 has an abrupt cliff: in probing,
-   `--txPower` of -10 dBm gave about 1% loss, and -15 dBm and below made nodes fail to associate (permanently
-   unreachable). There is no gradual loss regime, so the pre-registered hypotheses for S1-S3 cannot be confirmed
-   or rejected here. The interferer (S2) sits near the AP, not near STA-4 as the protocol describes.
-2. S4 is the only scenario with real events. The fault window is 60-90 s (the protocol says 30-60 s).
-3. The "DQN (No Shield)" ablation listed in the protocol is not implemented in the NS-3 build, so it was not run.
-4. The Python-simulator reference numbers for the sim-to-ns3 gap are not in this directory.
+1. S2's interference is modelled as extra loss on STA-4 plus real co-channel traffic; the traffic alone caused no
+   measurable loss. The interferer sits near the AP, not near STA-4.
+2. S4's fault window is 60-90 s (the protocol says 30-60 s). The "urgent_viol_pct" in S4 includes the dead node's own AoI.
+3. The 802.11 PHY still has an abrupt cliff: with TX power of about -15 dBm or less STAs fail to associate.
+   Scenarios stay above it.
+4. The "DQN (No Shield)" ablation is not implemented in the NS-3 build, so it was not run.
+5. The Python-simulator reference numbers for the sim-to-ns3 gap are not in this directory.
+6. With 20 near-deterministic paired runs the p-values are extreme; quote the relative differences.

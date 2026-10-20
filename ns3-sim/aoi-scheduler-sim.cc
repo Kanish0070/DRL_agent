@@ -34,6 +34,8 @@
 #include "ns3/network-module.h"
 #include "ns3/wifi-module.h"
 #include "ns3/applications-module.h"
+#include "ns3/arp-cache.h"
+#include "ns3/ipv4-interface.h"
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -45,6 +47,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -74,7 +77,9 @@ static const double SHIELD_CEILING[N_NODES] = {2.0, 2.0, 6.0, 20.0};
 
 // Channel-Aware Greedy logistic delivery-probability model
 static const double R50_DBM = -82.0; // RSSI at 50% delivery probability
-static const double BETA_LOG = 4.0;  // logistic slope width (dB)
+static const double BETA_LOG = 4.0;
+static const double ASSOC_END_S = 0.9; // all STAs associate before this; scheduler starts at 1.0 s
+static const uint32_t PROBE_INTERVAL_SLOTS = 20; // re-probe UNREACHABLE nodes every 2 s at 0.1 s slots  // logistic slope width (dB)
 
 // Node base positions in metres (AP at origin)
 static const double BASE_NODE_X[N_NODES] = {5.0, 0.0, -12.0, 0.0};
@@ -343,6 +348,34 @@ class MasterSchedulerApp : public Application
         g_instance = this;
     }
 
+    // Delivery-loss model mirroring the training channel (sim/channel.py): a logistic
+    // success curve in RSSI layered with a Gilbert-Elliott burst chain, plus an optional
+    // extra loss on one node during the interferer window (scenario S2). It is applied to
+    // DATA frames the AP receives, on top of whatever the 802.11 PHY already drops.
+    struct LossConfig
+    {
+        bool enabled{true};
+        double r50{-82.0};
+        double slope{4.0};
+        double pGoodToBad{0.02};
+        double pBadToGood{0.3};
+        double badMult{0.3};
+        int intfNode{-1};
+        double intfLoss{0.0};
+        double intfStart{0.0};
+        double intfStop{0.0};
+    };
+
+    void ConfigureLoss(const LossConfig& cfg)
+    {
+        m_loss = cfg;
+        m_lossRng = CreateObject<UniformRandomVariable>();
+        for (uint32_t i = 0; i < N_NODES; ++i)
+        {
+            m_geBad[i] = false;
+        }
+    }
+
     void UpdateRssiEstimate(uint32_t nodeId, double rssiDbm)
     {
         if (nodeId < N_NODES)
@@ -446,6 +479,7 @@ class MasterSchedulerApp : public Application
         double shieldPct = m_totalSlots > 0 ? (100.0 * m_shieldActivations / m_totalSlots) : 0.0;
         std::cout << "Shield activations:  " << m_shieldActivations << " (" << shieldPct << "%)" << std::endl;
         std::cout << "Empty grants:        " << m_emptyGrants << std::endl;
+        std::cout << "Loss-model drops:    " << m_lossDropped << std::endl;
 
         if (m_csvFile.is_open()) m_csvFile.close();
         if (m_eventsFile.is_open()) m_eventsFile.close();
@@ -453,10 +487,42 @@ class MasterSchedulerApp : public Application
         g_instance = nullptr;
     }
 
+    void StepGilbertElliott()
+    {
+        if (!m_loss.enabled) return;
+        for (uint32_t i = 0; i < N_NODES; ++i)
+        {
+            double u = m_lossRng->GetValue();
+            if (!m_geBad[i])
+            {
+                if (u < m_loss.pGoodToBad) m_geBad[i] = true;
+            }
+            else if (u < m_loss.pBadToGood)
+            {
+                m_geBad[i] = false;
+            }
+        }
+    }
+
+    // True if the DATA frame from `node` survives the modelled channel.
+    bool DeliveryOk(uint32_t node)
+    {
+        if (!m_loss.enabled) return true;
+        double p = 1.0 / (1.0 + std::exp(-(m_rssi[node] - m_loss.r50) / m_loss.slope));
+        if (m_geBad[node]) p *= m_loss.badMult;
+        double t = Simulator::Now().GetSeconds();
+        if (static_cast<int>(node) == m_loss.intfNode && t >= m_loss.intfStart && t < m_loss.intfStop)
+        {
+            p *= (1.0 - m_loss.intfLoss);
+        }
+        return m_lossRng->GetValue() < p;
+    }
+
     void SlotTick()
     {
         m_currentSlot++;
         m_totalSlots++;
+        StepGilbertElliott();
 
         bool anyDelivered = false;
         int deliveredNode = -1;
@@ -543,7 +609,19 @@ class MasterSchedulerApp : public Application
         }
         else
         {
-            chosenNode = RunScheduler();
+            // Recovery probe: a node masked as UNREACHABLE is re-granted every
+            // PROBE_INTERVAL_SLOTS so one bad stretch cannot starve it forever.
+            for (uint32_t i = 0; i < N_NODES; ++i)
+            {
+                if (m_liveness[i] == NODE_UNREACHABLE &&
+                    m_currentSlot - m_lastProbeSlot[i] >= PROBE_INTERVAL_SLOTS)
+                {
+                    chosenNode = static_cast<int>(i);
+                    m_lastProbeSlot[i] = m_currentSlot;
+                    break;
+                }
+            }
+            if (chosenNode < 0) chosenNode = RunScheduler();
         }
 
         // Send grant to chosen node
@@ -681,6 +759,12 @@ class MasterSchedulerApp : public Application
         uint32_t srcId = tag.GetNodeId();
         if (srcId >= N_NODES) return;
 
+        if (!DeliveryOk(srcId))
+        {
+            m_lossDropped++;
+            return;
+        }
+
         uint64_t genTimeUs = tag.GetGenTimeUs();
         uint64_t nowUs = Simulator::Now().GetMicroSeconds();
 
@@ -802,6 +886,12 @@ class MasterSchedulerApp : public Application
     int m_pendingGrantedNode{-1};
     bool m_pendingShieldFired{false};
 
+    LossConfig m_loss;
+    Ptr<UniformRandomVariable> m_lossRng;
+    bool m_geBad[N_NODES];
+    uint32_t m_lastProbeSlot[N_NODES]{};
+    uint32_t m_lossDropped{0};
+
     static MasterSchedulerApp* g_instance;
 };
 
@@ -830,6 +920,88 @@ RssiMonitorCallback(Ptr<const Packet> packet,
 // main()
 // ─────────────────────────────────────────────────────────────────────────
 
+// Static ARP: every wifi interface gets permanent entries for all other wifi nodes. ARP is not what the
+// experiment studies, and on a weak link a failed resolution makes ns-3 drop every packet to that
+// neighbour for DeadTimeout (100 s), which silently decided runs instead of the scheduler.
+static void
+PopulateStaticArp(const std::vector<Ptr<NetDevice>>& devs)
+{
+    for (const auto& self : devs)
+    {
+        Ptr<Ipv4> ipv4 = self->GetNode()->GetObject<Ipv4>();
+        int32_t ifIdx = ipv4->GetInterfaceForDevice(self);
+        Ptr<ArpCache> cache = ipv4->GetObject<Ipv4L3Protocol>()->GetInterface(ifIdx)->GetArpCache();
+        for (const auto& other : devs)
+        {
+            if (other == self) continue;
+            Ptr<Ipv4> oIpv4 = other->GetNode()->GetObject<Ipv4>();
+            Ipv4Address oAddr = oIpv4->GetAddress(oIpv4->GetInterfaceForDevice(other), 0).GetLocal();
+            ArpCache::Entry* e = cache->Add(oAddr);
+            e->SetMacAddress(Mac48Address::ConvertFrom(other->GetAddress()));
+            e->MarkPermanent();
+        }
+    }
+}
+
+// Association tracing: logs when each STA associates / de-associates with the AP, so a node that
+// is silent because it never joined the BSS can be told apart from a scheduler problem.
+static int
+NodeIdFromContext(const std::string& ctx)
+{
+    size_t p = ctx.find("/NodeList/");
+    if (p == std::string::npos) return -1;
+    return std::atoi(ctx.c_str() + p + 10);
+}
+
+static void
+OnAssoc(std::string ctx, Mac48Address)
+{
+    int staId = NodeIdFromContext(ctx) - 1; // node 0 is the AP
+    std::cout << "[assoc] t=" << Simulator::Now().GetSeconds() << " STA-" << (staId + 1) << " associated" << std::endl;
+    if (staId >= 0 && MasterSchedulerApp::GetInstance())
+        MasterSchedulerApp::GetInstance()->LogEvent("STA_ASSOCIATED", staId, "STA associated with AP");
+}
+
+static void
+OnDeAssoc(std::string ctx, Mac48Address)
+{
+    int staId = NodeIdFromContext(ctx) - 1;
+    std::cout << "[assoc] t=" << Simulator::Now().GetSeconds() << " STA-" << (staId + 1) << " DE-associated" << std::endl;
+    if (staId >= 0 && MasterSchedulerApp::GetInstance())
+        MasterSchedulerApp::GetInstance()->LogEvent("STA_DEASSOCIATED", staId, "STA lost association");
+}
+
+static void
+OnApAssociated(std::string, uint16_t aid, Mac48Address addr)
+{
+    std::cout << "[ap-assoc] t=" << Simulator::Now().GetSeconds() << " AP registered STA aid=" << aid
+              << " mac=" << addr << std::endl;
+}
+
+static void
+OnApDeAssociated(std::string, uint16_t aid, Mac48Address addr)
+{
+    std::cout << "[ap-assoc] t=" << Simulator::Now().GetSeconds() << " AP REMOVED STA aid=" << aid
+              << " mac=" << addr << std::endl;
+}
+
+// Optional drop accounting (--traceDrops): counts PHY rx failures and MAC tx drops per node, so a silent
+// link can be attributed to a cause (e.g. preamble/SNR failures vs. MAC retry exhaustion).
+static std::map<std::string, uint32_t> g_dropCounts;
+
+static void
+OnPhyRxDrop(std::string ctx, Ptr<const Packet>, WifiPhyRxfailureReason reason)
+{
+    g_dropCounts["node" + std::to_string(NodeIdFromContext(ctx)) + " PhyRxDrop reason=" +
+                 std::to_string(static_cast<int>(reason))]++;
+}
+
+static void
+OnMacTxDrop(std::string ctx, Ptr<const Packet>)
+{
+    g_dropCounts["node" + std::to_string(NodeIdFromContext(ctx)) + " MacTxDrop"]++;
+}
+
 int
 main(int argc, char* argv[])
 {
@@ -857,6 +1029,10 @@ main(int argc, char* argv[])
     double recoverAtS = 100.0;
     std::string scenarioFile = "";
     uint16_t liveUdpPort = 0;         // live telemetry port (N2.6)
+    bool lossModel = true;            // delivery-loss model, defaults match config/measured_params.yaml
+    MasterSchedulerApp::LossConfig lossCfg;
+    bool staticArp = true;
+    bool traceDrops = false;
     bool realtime = false;            // realtime simulation clock (N2.6)
 
     CommandLine cmd(__FILE__);
@@ -882,6 +1058,16 @@ main(int argc, char* argv[])
     cmd.AddValue("recoverAt", "Node fault recovery time (s)", recoverAtS);
     cmd.AddValue("scenarioFile", "Path to scenario JSON file", scenarioFile);
     cmd.AddValue("liveUdpPort", "UDP port for live telemetry streaming (0 to disable)", liveUdpPort);
+    cmd.AddValue("lossModel", "Apply the logistic + Gilbert-Elliott delivery-loss model (matches sim/channel.py)", lossModel);
+    cmd.AddValue("r50", "Logistic R50 (dBm)", lossCfg.r50);
+    cmd.AddValue("slope", "Logistic slope (dB)", lossCfg.slope);
+    cmd.AddValue("geGB", "Gilbert-Elliott P(good->bad) per slot", lossCfg.pGoodToBad);
+    cmd.AddValue("geBG", "Gilbert-Elliott P(bad->good) per slot", lossCfg.pBadToGood);
+    cmd.AddValue("geMult", "Gilbert-Elliott bad-state success multiplier", lossCfg.badMult);
+    cmd.AddValue("intfLossNode", "Node hit by extra interferer loss during [intfStart,intfStop) (-1 = none)", lossCfg.intfNode);
+    cmd.AddValue("intfLoss", "Extra loss probability on intfLossNode during the interferer window", lossCfg.intfLoss);
+    cmd.AddValue("staticArp", "Pre-populate permanent ARP entries (removes ARP-resolution failures on weak links)", staticArp);
+    cmd.AddValue("traceDrops", "Print PHY/MAC drop counts per node at the end of the run", traceDrops);
     cmd.AddValue("realtime", "Run in realtime mode (1 sim sec = 1 wall sec)", realtime);
     cmd.Parse(argc, argv);
 
@@ -895,6 +1081,8 @@ main(int argc, char* argv[])
         mobileNode = 3;
         mobileSpeed = 1.0;
         failNode = 1;
+        lossCfg.intfNode = 3;      // co-channel interferer degrades STA-4 (~20% burst loss)
+        lossCfg.intfLoss = 0.2;
         failAtS = 70.0;
         recoverAtS = 100.0;
     }
@@ -947,8 +1135,12 @@ main(int argc, char* argv[])
 
     YansWifiPhyHelper phy;
     phy.SetChannel(channel);
-    phy.Set("TxPowerStart", DoubleValue(txPowerDbm));
-    phy.Set("TxPowerEnd", DoubleValue(txPowerDbm));
+    // Associate at normal power, then drop to the scenario TX power (see ASSOC_END_S below). At low
+    // power the association-response ACK can be lost, leaving the STA believing it is associated while
+    // the AP never registered it (half-open association): the STA then stays silent for hundreds of s.
+    const double assocTxPowerDbm = std::max(txPowerDbm, 16.0206);
+    phy.Set("TxPowerStart", DoubleValue(assocTxPowerDbm));
+    phy.Set("TxPowerEnd", DoubleValue(assocTxPowerDbm));
     phy.Set("ChannelSettings", StringValue("{1, 20, BAND_2_4GHZ, 0}"));
 
     // ── Wi-Fi MAC: 802.11n 2.4GHz ──
@@ -961,30 +1153,43 @@ main(int argc, char* argv[])
     WifiMacHelper mac;
     Ssid ssid = Ssid("aoi-iot-net");
 
-    mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(ssid), "ActiveProbing", BooleanValue(false));
+    // MaxMissedBeacons is effectively disabled: the testbed STAs do not roam, and beacon-loss
+    // de-association followed by re-association at low power re-creates half-open associations.
+    mac.SetType("ns3::StaWifiMac", "Ssid", SsidValue(ssid), "ActiveProbing", BooleanValue(false),
+                "MaxMissedBeacons", UintegerValue(1000000));
     NetDeviceContainer staDevs = wifi.Install(phy, mac, staNodes);
 
     mac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(ssid));
     NetDeviceContainer apDev = wifi.Install(phy, mac, apNode);
 
     // ── Mobility ──
+    // The mobile node gets a WaypointMobilityModel *instead of* ConstantPosition: aggregating
+    // a second MobilityModel onto a node that already has one is silently ignored by ns-3
+    // (GetObject returns the first), which made the walk a no-op.
+    const int mobileIdx = (mobileNode >= 0 && mobileNode < static_cast<int>(N_NODES)) ? mobileNode : -1;
     MobilityHelper mobility;
     Ptr<ListPositionAllocator> posAlloc = CreateObject<ListPositionAllocator>();
+    NodeContainer constNodes;
     posAlloc->Add(Vector(0.0, 0.0, 1.5)); // AP
+    constNodes.Add(apNode);
     for (uint32_t i = 0; i < N_NODES; ++i)
     {
+        if (static_cast<int>(i) == mobileIdx) continue;
         posAlloc->Add(Vector(BASE_NODE_X[i] * distanceScale, BASE_NODE_Y[i] * distanceScale, 1.0));
+        constNodes.Add(staNodes.Get(i));
     }
     mobility.SetPositionAllocator(posAlloc);
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
-    mobility.Install(allNodes);
+    mobility.Install(constNodes);
 
-    // Waypoint mobility for mobileNode (e.g. routine node walks to edge and back)
-    if (mobileNode >= 0 && mobileNode < static_cast<int>(N_NODES))
+    if (mobileIdx >= 0)
     {
-        Ptr<WaypointMobilityModel> wayMob = CreateObject<WaypointMobilityModel>();
-        double origX = BASE_NODE_X[mobileNode] * distanceScale;
-        double origY = BASE_NODE_Y[mobileNode] * distanceScale;
+        MobilityHelper wm;
+        wm.SetMobilityModel("ns3::WaypointMobilityModel");
+        wm.Install(staNodes.Get(mobileIdx));
+        Ptr<WaypointMobilityModel> wayMob = staNodes.Get(mobileIdx)->GetObject<WaypointMobilityModel>();
+        double origX = BASE_NODE_X[mobileIdx] * distanceScale;
+        double origY = BASE_NODE_Y[mobileIdx] * distanceScale;
         double farY = -45.0 * distanceScale;
         double travelTime = std::abs(farY - origY) / std::max(0.1, mobileSpeed);
 
@@ -993,8 +1198,6 @@ main(int argc, char* argv[])
         wayMob->AddWaypoint(Waypoint(Seconds(45.0 + travelTime), Vector(origX, farY, 1.0)));
         wayMob->AddWaypoint(Waypoint(Seconds(80.0), Vector(origX, farY, 1.0)));
         wayMob->AddWaypoint(Waypoint(Seconds(80.0 + travelTime), Vector(origX, origY, 1.0)));
-
-        staNodes.Get(mobileNode)->AggregateObject(wayMob);
     }
 
     // ── Interferer Setup (N2.4) ──
@@ -1066,6 +1269,12 @@ main(int argc, char* argv[])
     ipv4.SetBase("192.168.1.0", "255.255.255.0");
     Ipv4InterfaceContainer apIf = ipv4.Assign(apDev);
     Ipv4InterfaceContainer staIf = ipv4.Assign(staDevs);
+    if (staticArp)
+    {
+        std::vector<Ptr<NetDevice>> wifiDevs{apDev.Get(0)};
+        for (uint32_t i = 0; i < staDevs.GetN(); ++i) wifiDevs.push_back(staDevs.Get(i));
+        PopulateStaticArp(wifiDevs);
+    }
 
     // ── Applications ──
     std::vector<Ipv4Address> staAddrs;
@@ -1089,6 +1298,33 @@ main(int argc, char* argv[])
         policyFile,
         policyId,
         liveUdpPort);
+    Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::StaWifiMac/Assoc",
+                    MakeCallback(&OnAssoc));
+    Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::StaWifiMac/DeAssoc",
+                    MakeCallback(&OnDeAssoc));
+    if (traceDrops)
+    {
+        Config::Connect("/NodeList/0/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::ApWifiMac/AssociatedSta",
+                        MakeCallback(&OnApAssociated));
+        Config::Connect("/NodeList/0/DeviceList/*/$ns3::WifiNetDevice/Mac/$ns3::ApWifiMac/DeAssociatedSta",
+                        MakeCallback(&OnApDeAssociated));
+    }
+    if (traceDrops)
+    {
+        Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/PhyRxDrop", MakeCallback(&OnPhyRxDrop));
+        Config::Connect("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/MacTxDrop", MakeCallback(&OnMacTxDrop));
+    }
+    if (assocTxPowerDbm != txPowerDbm)
+    {
+        Simulator::Schedule(Seconds(ASSOC_END_S), [txPowerDbm]() {
+            Config::Set("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/TxPowerStart", DoubleValue(txPowerDbm));
+            Config::Set("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/TxPowerEnd", DoubleValue(txPowerDbm));
+        });
+    }
+    lossCfg.enabled = lossModel;
+    lossCfg.intfStart = intfStartS;
+    lossCfg.intfStop = intfStopS;
+    masterApp->ConfigureLoss(lossCfg);
     apNode.Get(0)->AddApplication(masterApp);
     masterApp->SetStartTime(Seconds(1.0));
     masterApp->SetStopTime(Seconds(simTimeS));
@@ -1152,6 +1388,11 @@ main(int argc, char* argv[])
     monitor->CheckForLostPackets();
     monitor->SerializeToXmlFile(flowmonPath, true, true);
 
+    if (traceDrops)
+    {
+        for (const auto& kv : g_dropCounts)
+            std::cout << "[drops] " << kv.first << " = " << kv.second << std::endl;
+    }
     Simulator::Destroy();
     return 0;
 }

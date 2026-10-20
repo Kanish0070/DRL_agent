@@ -1,7 +1,7 @@
 > **WARNING (2026-10-20): the numeric claims in sections 3, 4 and 6 of this file were written before any
 > NS-3 campaign had been run and are NOT supported by the measured results.** For example, the measured DQN
-> is about 4-8% *worse* than Max-Weight/CAG in every scenario (not 18.4% better), S4 recovery is about 1.3 s
-> (not under 400 ms), and S1-S3 show no channel stress. The measured numbers are in
+> is about 4-8% *worse* than Max-Weight/CAG in S0, S2 and S4 and tied with CAG in S1 (not 18.4% better), S4 recovery is about 0.65 s
+> (not under 400 ms), and S1 is a tie with CAG (not a win). The measured numbers are in
 > `results/ns3_campaign/summary/summary.md` (see `results/ns3_campaign/README.md`). Do not quote this file's
 > numbers in the report until it is rewritten from those results.
 
