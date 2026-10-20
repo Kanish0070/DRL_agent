@@ -12,7 +12,7 @@ SCHEDULER="${4:-dqn}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NS3_VERSION="3.41"
 NS3_HOME="${NS3_HOME:-$HOME/ns3}"
-NS3_DIR="${NS3_HOME}/ns-allinone-${NS3_VERSION}/ns-${NS3_VERSION}"
+NS3_DIR="${NS3_DIR:-${NS3_HOME}/ns-allinone-${NS3_VERSION}/ns-${NS3_VERSION}}"
 SCENARIO="${PROJECT_ROOT}/ns3-sim/scenarios/demo.json"
 POLICY_TXT="${PROJECT_ROOT}/deploy/artifacts/dqn_seed${POLICY_SEED}.txt"
 OUT_CSV="${PROJECT_ROOT}/ns3-sim/results/demo/live_log.csv"
@@ -29,6 +29,7 @@ echo "========================================================"
 # 1. Start Demo Telemetry Server in the background
 echo "[1/2] Starting telemetry server..."
 python3 "${PROJECT_ROOT}/tools/demo_server.py" \
+    --live \
     --port "${PORT}" \
     --udp-port "${UDP_PORT}" \
     --open-browser &

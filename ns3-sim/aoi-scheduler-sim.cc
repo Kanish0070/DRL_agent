@@ -35,8 +35,13 @@
 #include "ns3/wifi-module.h"
 #include "ns3/applications-module.h"
 
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -85,23 +90,23 @@ static const uint32_t N_FAIL_THRESHOLD = 5;
 
 enum SchedulerType
 {
-    SCHED_RR,
-    SCHED_FPQ,
-    SCHED_MAXWEIGHT,
-    SCHED_CAG,
-    SCHED_RANDOM,
-    SCHED_DQN
+    AOI_SCHED_RR,
+    AOI_SCHED_FPQ,
+    AOI_SCHED_MAXWEIGHT,
+    AOI_SCHED_CAG,
+    AOI_SCHED_RANDOM,
+    AOI_SCHED_DQN
 };
 
 static SchedulerType
 ParseSchedulerType(const std::string& s)
 {
-    if (s == "rr") return SCHED_RR;
-    if (s == "fpq") return SCHED_FPQ;
-    if (s == "maxweight") return SCHED_MAXWEIGHT;
-    if (s == "cag") return SCHED_CAG;
-    if (s == "random") return SCHED_RANDOM;
-    if (s == "dqn") return SCHED_DQN;
+    if (s == "rr") return AOI_SCHED_RR;
+    if (s == "fpq") return AOI_SCHED_FPQ;
+    if (s == "maxweight") return AOI_SCHED_MAXWEIGHT;
+    if (s == "cag") return AOI_SCHED_CAG;
+    if (s == "random") return AOI_SCHED_RANDOM;
+    if (s == "dqn") return AOI_SCHED_DQN;
     NS_FATAL_ERROR("Unknown --scheduler value: " << s
                    << " (expected rr|fpq|maxweight|cag|random|dqn)");
 }
@@ -111,12 +116,12 @@ SchedulerName(SchedulerType t)
 {
     switch (t)
     {
-    case SCHED_RR: return "rr";
-    case SCHED_FPQ: return "fpq";
-    case SCHED_MAXWEIGHT: return "maxweight";
-    case SCHED_CAG: return "cag";
-    case SCHED_RANDOM: return "random";
-    case SCHED_DQN: return "dqn";
+    case AOI_SCHED_RR: return "rr";
+    case AOI_SCHED_FPQ: return "fpq";
+    case AOI_SCHED_MAXWEIGHT: return "maxweight";
+    case AOI_SCHED_CAG: return "cag";
+    case AOI_SCHED_RANDOM: return "random";
+    case AOI_SCHED_DQN: return "dqn";
     }
     return "unknown";
 }
@@ -326,7 +331,7 @@ class MasterSchedulerApp : public Application
             m_queueEstimate[i] = true;
         }
 
-        if (m_schedulerType == SCHED_DQN)
+        if (m_schedulerType == AOI_SCHED_DQN)
         {
             NS_ASSERT_MSG(!m_policyFile.empty(), "DQN scheduler requires --policyFile");
             std::cout << "[MasterSchedulerApp] Loading DQN policy from " << m_policyFile << "..." << std::endl;
@@ -394,8 +399,13 @@ class MasterSchedulerApp : public Application
 
         if (m_liveUdpPort > 0)
         {
-            m_liveUdpSocket = Socket::CreateSocket(GetNode(), UdpSocketFactory::GetTypeId());
-            m_liveUdpSocket->Connect(InetSocketAddress(Ipv4Address("127.0.0.1"), m_liveUdpPort));
+            // A real host UDP socket: ns-3's own sockets stay inside the simulated
+            // network and would never reach the dashboard server.
+            m_liveFd = ::socket(AF_INET, SOCK_DGRAM, 0);
+            std::memset(&m_liveAddr, 0, sizeof(m_liveAddr));
+            m_liveAddr.sin_family = AF_INET;
+            m_liveAddr.sin_port = htons(m_liveUdpPort);
+            ::inet_pton(AF_INET, "127.0.0.1", &m_liveAddr.sin_addr);
             std::cout << "[MasterSchedulerApp] Streaming live UDP telemetry to 127.0.0.1:"
                       << m_liveUdpPort << std::endl;
         }
@@ -439,7 +449,7 @@ class MasterSchedulerApp : public Application
 
         if (m_csvFile.is_open()) m_csvFile.close();
         if (m_eventsFile.is_open()) m_eventsFile.close();
-        if (m_liveUdpSocket) m_liveUdpSocket->Close();
+        if (m_liveFd >= 0) ::close(m_liveFd);
         g_instance = nullptr;
     }
 
@@ -587,7 +597,7 @@ class MasterSchedulerApp : public Application
 
         switch (m_schedulerType)
         {
-        case SCHED_RR: {
+        case AOI_SCHED_RR: {
             for (uint32_t step = 0; step < N_NODES; ++step)
             {
                 uint32_t cand = (m_currentSlot + step) % N_NODES;
@@ -596,7 +606,7 @@ class MasterSchedulerApp : public Application
             return static_cast<int>(m_currentSlot % N_NODES);
         }
 
-        case SCHED_FPQ: {
+        case AOI_SCHED_FPQ: {
             int best = -1;
             for (uint32_t i = 0; i < N_NODES; ++i)
             {
@@ -611,7 +621,7 @@ class MasterSchedulerApp : public Application
             return (best >= 0) ? best : 0;
         }
 
-        case SCHED_MAXWEIGHT: {
+        case AOI_SCHED_MAXWEIGHT: {
             int best = -1;
             for (uint32_t i = 0; i < N_NODES; ++i)
             {
@@ -624,7 +634,7 @@ class MasterSchedulerApp : public Application
             return (best >= 0) ? best : 0;
         }
 
-        case SCHED_CAG: {
+        case AOI_SCHED_CAG: {
             int best = -1;
             double bestScore = -1e30;
             for (uint32_t i = 0; i < N_NODES; ++i)
@@ -641,7 +651,7 @@ class MasterSchedulerApp : public Application
             return (best >= 0) ? best : 0;
         }
 
-        case SCHED_RANDOM: {
+        case AOI_SCHED_RANDOM: {
             std::vector<int> cands;
             for (uint32_t i = 0; i < N_NODES; ++i)
             {
@@ -652,7 +662,7 @@ class MasterSchedulerApp : public Application
             return cands[idx];
         }
 
-        case SCHED_DQN: {
+        case AOI_SCHED_DQN: {
             float obs[16];
             BuildObservation(obs);
             return m_dqnPolicy.ActMasked(obs, reachable);
@@ -730,7 +740,7 @@ class MasterSchedulerApp : public Application
                   << m_rssi[0] << "," << m_rssi[1] << "," << m_rssi[2] << "," << m_rssi[3] << "\n";
 
         // Stream UDP JSON telemetry if enabled (N2.6)
-        if (m_liveUdpSocket)
+        if (m_liveFd >= 0)
         {
             std::ostringstream ss;
             ss << std::fixed << std::setprecision(4);
@@ -746,8 +756,8 @@ class MasterSchedulerApp : public Application
                << ",\"liveness\":[" << m_liveness[0] << "," << m_liveness[1] << "," << m_liveness[2] << "," << m_liveness[3] << "]}"
                << "\n";
             std::string msg = ss.str();
-            Ptr<Packet> p = Create<Packet>(reinterpret_cast<const uint8_t*>(msg.c_str()), msg.size());
-            m_liveUdpSocket->Send(p);
+            ::sendto(m_liveFd, msg.c_str(), msg.size(), 0,
+                     reinterpret_cast<const sockaddr*>(&m_liveAddr), sizeof(m_liveAddr));
         }
     }
 
@@ -763,7 +773,8 @@ class MasterSchedulerApp : public Application
     Ptr<Socket> m_grantSocket;
     Ptr<Socket> m_dataSocket;
     Ptr<Socket> m_hbSocket;
-    Ptr<Socket> m_liveUdpSocket;
+    int m_liveFd{-1};
+    sockaddr_in m_liveAddr{};
     Ptr<UniformRandomVariable> m_randomPick;
 
     double m_aoi[N_NODES];
@@ -1009,6 +1020,10 @@ main(int argc, char* argv[])
         intfMobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
         intfMobility.Install(intfNodes);
 
+        // Ad-hoc MAC: the interferers must not beacon or accept associations. With the
+        // leftover ApWifiMac (same SSID) they became rogue APs, and the STAs associated
+        // with them, so grants to STA-1/STA-4 never reached the real AP.
+        mac.SetType("ns3::AdhocWifiMac");
         NetDeviceContainer intfDevs = wifi.Install(phy, mac, intfNodes);
 
         InternetStackHelper internetIntf;
