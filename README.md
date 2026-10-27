@@ -47,10 +47,14 @@ The dashboard shows ns-3 data only: live UDP telemetry, or recorded ns-3 runs.
 See [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md) for the panel script.
 
 ```bash
-bash tools/rehearse.sh                    # once (~15 s): record S0-S4 + best-case runs, build the Evidence data
-bash tools/run_live_demo.sh --compare     # LIVE: RR | Max-Weight | CAG | DQN as real-time ns-3 runs (120 s)
-python3 tools/demo_server.py --open-browser --live   # fallback: replay recordings, no ns-3 needed (works offline)
+bash tools/rehearse.sh                                # once (~15 s): record S0-S4 + best-case runs, build the Evidence data
+python3 tools/demo_server.py --open-browser --live    # start the dashboard; everything else is done with its buttons
 ```
+
+In the page, choose **Source: Live ns-3**, pick a scenario, a scheduler (all four, or one) and a DQN seed, then press
+**&#9654; Run live** (real time, 120 s). **Restart** re-runs it, **Stop** ends it, and you can change the scenario/scheduler/seed and
+run again at any time. The *Recorded ns-3 run* source replays saved runs instantly and works without ns-3.
+The terminal launcher `bash tools/run_live_demo.sh --compare` still works for a fixed one-shot run.
 
 Dashboard: pick a **Scenario** (S0-S4 or the 120 s demo timeline) to see its network effects (jammer, walking node,
 dead node, link quality rings); **Side-by-Side** compares the four schedulers on the same run; **Evidence** shows the

@@ -292,6 +292,22 @@
       <option value="S4">S4 Node fault</option>
     </select>
     <select id="caseSelect" style="display:none;"></select>
+    <span id="liveCtl" style="display:none; align-items:center; gap:8px;">
+      <label for="liveMode" style="font-size: 0.85rem; color: var(--text-muted);">Run:</label>
+      <select id="liveMode">
+        <option value="compare" selected>All 4 schedulers (compare)</option>
+        <option value="dqn">DQN only</option>
+        <option value="maxweight">Max-Weight only</option>
+        <option value="cag">CAG only</option>
+        <option value="rr">Round Robin only</option>
+      </select>
+      <select id="liveSeed" title="DQN training seed">
+        <option value="0">DQN seed 0</option><option value="1" selected>DQN seed 1</option><option value="2">DQN seed 2</option>
+        <option value="3">DQN seed 3</option><option value="4">DQN seed 4</option>
+      </select>
+      <button id="btnRunLive">&#9654; Run live</button>
+      <button id="btnStopLive" class="secondary">&#9632; Stop</button>
+    </span>
 
     <label for="speedSelect" style="font-size: 0.85rem; color: var(--text-muted);">Speed:</label>
     <select id="speedSelect">
@@ -628,6 +644,8 @@
     let curSet = { kind: 'scenario', name: 'demo' };
     let livePoller = null;
     let livePollSeq = 0;
+    let liveRunId = null;
+    let liveHalted = false;   // user pressed Stop
     let currentFrame = null;
     let lastSpawned = null;
     const freshStats = () => ({ total: 0, ok: 0, wasted: 0, shield: 0, cwSum: 0 });
@@ -636,7 +654,7 @@
     function fxAt(t) { return Object.assign({ interfererOn: false, sta4Distance: 18.0, sta2Dead: false }, scenDef().fx(t)); }
 
     function mainFam() {
-      const want = source === 'live' ? 'dqn' : document.getElementById("policySelect").value;
+      const want = document.getElementById("policySelect").value;
       if (runs[want]) return want;
       return runs.dqn ? 'dqn' : (Object.keys(runs)[0] || want);
     }
@@ -689,12 +707,12 @@
         const r = await fetch(`/api/frames?since=${livePollSeq}`);
         const j = await r.json();
         if (!j.live) { setBadge('live', 'Live — server not started with --live'); return; }
-        if (j.next < livePollSeq) { runs = {}; }
+        if (j.run_id !== liveRunId || j.next < livePollSeq) { runs = {}; livePollSeq = 0; liveRunId = j.run_id; currentSlot = 0; lastSpawned = null; currentFrame = null; particles.length = 0; return; }
         livePollSeq = j.next;
         j.frames.forEach(pushLive);
         const n = Object.keys(runs).length;
         if (n > 1 && !sideBySideMode) setSideBySide(true);
-        setBadge('live', n ? `LIVE — ns-3 real-time (${n} scheduler${n > 1 ? 's' : ''})` : 'LIVE — waiting for ns-3…');
+        setBadge('live', n ? (liveHalted ? 'LIVE — stopped (press ▶ Run live to start again)' : `LIVE — ns-3 real-time (${n} scheduler${n > 1 ? 's' : ''})`) : 'LIVE — press ▶ Run live');
         if (n) renderCaption();
       } catch (e) { setBadge('live', 'Live — server unreachable'); }
     }
@@ -737,12 +755,14 @@
       currentSlot = 0; lastSpawned = null; currentFrame = null; particles.length = 0;
       const live = s === 'live';
       document.getElementById("sourceSelect").value = s;
-      document.getElementById("scenarioSelect").style.display = live ? "none" : "inline-block";
+      document.getElementById("scenarioSelect").style.display = "inline-block";
       document.getElementById("caseSelect").style.display = live ? "none" : "inline-block";
-      document.getElementById("policySelect").disabled = live;
+      document.getElementById("liveCtl").style.display = live ? "inline-flex" : "none";
+      document.getElementById("policySelect").disabled = false;
       const sc = document.getElementById("timeScrubber");
       sc.disabled = live;
       if (live) {
+        document.getElementById("scenarioSelect").value = 'demo';
         curScen = 'demo'; curSet = { kind: 'scenario', name: 'demo' };
         sc.min = 0; sc.max = 120;
         renderCaption();
@@ -765,7 +785,7 @@
 
     function updateFrame() {
       const run = activeRun();
-      if (source === 'live' && run.length) currentSlot = run.length - 1;
+      if (source === 'live') { if (!isPlaying) return; if (run.length) currentSlot = run.length - 1; }
       const frame = run[currentSlot];
       if (!frame) return;
       if (frame !== lastSpawned) { lastSpawned = frame; currentFrame = frame; spawnPackets(frame); }
@@ -896,6 +916,34 @@
       document.getElementById("sideBySideContainer").style.display = on ? "block" : "none";
       document.getElementById("btnToggleSideBySide").classList.toggle("secondary", !on);
       if (on) updateSbs();
+    }
+
+    // ------------------------------------------------------------------
+    // Live run control: the server starts / stops real-time ns-3 processes on request
+    // ------------------------------------------------------------------
+    async function runLive() {
+      const scenario = document.getElementById("scenarioSelect").value;
+      const mode = document.getElementById("liveMode").value;
+      const seed = document.getElementById("liveSeed").value;
+      liveHalted = false;
+      setBadge('live', 'LIVE — starting ns-3…');
+      let j;
+      try { j = await (await fetch(`/api/live/start?scenario=${scenario}&mode=${mode}&seed=${seed}`, { method: 'POST' })).json(); }
+      catch (e) { setBadge('live', 'Live — server unreachable'); return; }
+      if (j.error) { setBadge('live', 'Live — ' + j.error); return; }
+      runs = {}; livePollSeq = 0; currentSlot = 0; lastSpawned = null; currentFrame = null; particles.length = 0;
+      curScen = scenario; curSet = { kind: 'scenario', name: scenario };
+      liveRunId = j.run_id;
+      document.getElementById("policySelect").value = mode === 'compare' ? 'dqn' : mode;
+      isPlaying = true; document.getElementById("btnPlayPause").innerText = "Pause";
+      setSideBySide(mode === 'compare');
+      renderCaption();
+    }
+
+    async function stopLive() {
+      liveHalted = true;
+      try { await fetch('/api/live/stop', { method: 'POST' }); } catch (e) {}
+      setBadge('live', 'LIVE — stopped (press ▶ Run live to start again)');
     }
 
     // ------------------------------------------------------------------
@@ -1081,9 +1129,12 @@
     });
 
     document.getElementById("btnRestart").addEventListener("click", () => {
+      if (source === 'live') { runLive(); return; }   // re-run the live scenario from t = 0
       currentSlot = 0;
       updateFrame();
     });
+    document.getElementById("btnRunLive").addEventListener("click", runLive);
+    document.getElementById("btnStopLive").addEventListener("click", stopLive);
 
     document.getElementById("speedSelect").addEventListener("change", (e) => {
       playbackSpeed = parseFloat(e.target.value);
@@ -1099,7 +1150,10 @@
     });
 
     document.getElementById("sourceSelect").addEventListener("change", e => setSource(e.target.value));
-    document.getElementById("scenarioSelect").addEventListener("change", e => { document.getElementById("caseSelect").value = ""; loadSet('scenario', e.target.value); });
+    document.getElementById("scenarioSelect").addEventListener("change", e => {
+      if (source === 'live') return;   // applies to the next ▶ Run live
+      document.getElementById("caseSelect").value = ""; loadSet('scenario', e.target.value);
+    });
     document.getElementById("caseSelect").addEventListener("change", e => { if (e.target.value) { loadSet('best', e.target.value); setSideBySide(true); } });
     document.getElementById("policySelect").addEventListener("change", () => { currentSlot = Math.min(currentSlot, Math.max(0, activeRun().length - 1)); lastSpawned = null; updateFrame(); });
     document.getElementById("btnToggleSideBySide").addEventListener("click", () => setSideBySide(!sideBySideMode));

@@ -11,12 +11,14 @@ import argparse
 import collections
 import csv
 import http.server
+import importlib.util
 import json
 import os
 import re
 from pathlib import Path
 import socket
 import socketserver
+import subprocess
 import sys
 import threading
 import urllib.parse
@@ -42,6 +44,7 @@ class LiveTelemetryListener(threading.Thread):
         self.latest_frame = None
         self.running = True
         self.seq = 0
+        self.run_id = 0
         self.frames = collections.deque(maxlen=8000)  # (seq, frame); room for 3 parallel runs x 2000 slots
         self.lock = threading.Lock()
 
@@ -49,6 +52,13 @@ class LiveTelemetryListener(threading.Thread):
         with self.lock:
             out = [f for (q, f) in self.frames if q > since]
             return out, self.seq
+
+    def reset(self):
+        """Start a fresh run: drop buffered frames and bump run_id so browsers clear their state."""
+        with self.lock:
+            self.frames.clear()
+            self.latest_frame = None
+            self.run_id += 1
 
     def run(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -75,6 +85,72 @@ class LiveTelemetryListener(threading.Thread):
             sock.close()
 
 
+def _load_recorder():
+    spec = importlib.util.spec_from_file_location("record_runs", PROJECT_ROOT / "ns3-sim" / "scripts" / "record_runs.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class LiveRunner:
+    """Starts / stops real-time ns-3 runs on request from the dashboard (whitelisted parameters only)."""
+    MODES = ("compare", "rr", "maxweight", "cag", "dqn")
+
+    def __init__(self, listener):
+        self.listener = listener
+        self.procs = []
+        self.info = {"scenario": None, "mode": None, "dqn_seed": None, "started": None}
+        self.lock = threading.Lock()
+        self.rec = _load_recorder()
+
+    def running(self):
+        return any(p.poll() is None for p in self.procs)
+
+    def status(self):
+        return {"running": self.running(), "run_id": self.listener.run_id if self.listener else 0, **self.info}
+
+    def stop(self):
+        for p in self.procs:
+            if p.poll() is None:
+                p.terminate()
+        for p in self.procs:
+            try:
+                p.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        self.procs = []
+
+    def start(self, scenario: str, mode: str, dqn_seed: int, eval_seed: int = 100):
+        rec = self.rec
+        if self.listener is None:
+            raise ValueError("server was not started with --live")
+        if scenario != "demo" and scenario not in rec.SCENARIOS:
+            raise ValueError(f"unknown scenario {scenario!r}")
+        if mode not in self.MODES:
+            raise ValueError(f"unknown mode {mode!r}")
+        if dqn_seed not in range(5):
+            raise ValueError("dqn_seed must be 0-4")
+        try:
+            binary = rec.find_binary()
+        except SystemExit as e:
+            raise ValueError(str(e))
+        with self.lock:
+            self.stop()
+            self.listener.reset()
+            flags = rec.DEMO_FLAGS if scenario == "demo" else rec.SCENARIOS[scenario]
+            flags += f" --realtime=true --liveUdpPort={self.listener.port}"
+            sim_time = None if scenario == "demo" else 120
+            out_dir = PROJECT_ROOT / "ns3-sim" / "results" / "live"
+            pols = ["rr", "maxweight", "cag", "dqn"] if mode == "compare" else [mode]
+            for pol in pols:
+                pid = f"dqn_seed{dqn_seed}" if pol == "dqn" else pol
+                pfile = rec.ART / f"{pid}.txt" if pol == "dqn" else None
+                cmd = rec.job(binary, out_dir / f"{pid}.csv", pol, pid, flags, sim_time, eval_seed, pfile)
+                self.procs.append(subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            self.info = {"scenario": scenario, "mode": mode, "dqn_seed": dqn_seed, "started": time.time()}
+        return self.status()
+
+
 class DemoHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """Custom HTTP handler serving dashboard and REST APIs."""
 
@@ -91,6 +167,24 @@ class DemoHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         pass
+
+    def do_POST(self):
+        route = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(route.query)
+        runner = getattr(self.server, "runner", None)
+        if runner is None:
+            return self._json({"error": "server not started with --live"}, 400)
+        if route.path == "/api/live/start":
+            try:
+                st = runner.start(q.get("scenario", ["demo"])[0], q.get("mode", ["compare"])[0],
+                                  int(q.get("seed", ["1"])[0]))
+            except (ValueError, OSError) as e:
+                return self._json({"error": str(e)}, 400)
+            return self._json(st)
+        if route.path == "/api/live/stop":
+            runner.stop()
+            return self._json(runner.status())
+        return self._json({"error": "not found"}, 404)
 
     def _run_set(self, base: Path, name: str):
         """All recorded policies of one scenario / best case: {policy: [frames]}."""
@@ -115,6 +209,9 @@ class DemoHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             if runs is None:
                 return self._json({"error": "not recorded - run: python3 ns3-sim/scripts/record_runs.py --scenarios --best-cases"}, 404)
             return self._json({"runs": runs})
+        if route.path == "/api/live/status":
+            runner = getattr(self.server, "runner", None)
+            return self._json(runner.status() if runner else {"running": False, "error": "server not started with --live"})
         if route.path == "/api/summary":
             if not SUMMARY_JSON.exists():
                 return self._json({"error": "run: python3 ns3-sim/analysis/find_best_cases.py"}, 404)
@@ -156,7 +253,7 @@ class DemoHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             if listener is None:
                 return self._json({"frames": [], "next": 0, "live": False})
             frames, nxt = listener.frames_since(since)
-            return self._json({"frames": frames, "next": nxt, "live": True})
+            return self._json({"frames": frames, "next": nxt, "live": True, "run_id": listener.run_id})
 
         if self.path.startswith("/api/replays"):
             d = Path(self.server.replay_dir)
@@ -215,8 +312,9 @@ def run_server(port: int = 8000, replay_dir: str = "results", live: bool = False
     class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
 
-    server = ThreadedHTTPServer(("0.0.0.0", port), DemoHTTPRequestHandler)
+    server = ThreadedHTTPServer(("127.0.0.1", port), DemoHTTPRequestHandler)   # loopback only: the page can start ns-3
     server.listener = listener
+    server.runner = LiveRunner(listener) if listener else None
     server.replay_dir = replay_dir
 
     url = f"http://localhost:{port}/"
@@ -237,6 +335,8 @@ def run_server(port: int = 8000, replay_dir: str = "results", live: bool = False
     except KeyboardInterrupt:
         print("\n[demo_server] Shutting down...")
     finally:
+        if server.runner:
+            server.runner.stop()
         if listener:
             listener.running = False
         server.server_close()
