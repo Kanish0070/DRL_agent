@@ -29,7 +29,8 @@ BASELINES = ["rr", "fpq", "random", "maxweight", "cag"]
 LABEL = {"rr": "Round Robin", "fpq": "Fixed Priority", "random": "Random",
          "maxweight": "Max-Weight", "cag": "Channel-Aware Greedy", "dqn": "DQN (+shield)"}
 SCENARIO_NAME = {"S0": "Nominal", "S1": "Weak links", "S2": "Co-channel interferer",
-                 "S3": "Mobility (STA-4 walks out)", "S4": "Fault (STA-2 down 60-90 s)"}
+                 "S3": "Mobility (STA-4 walks out)", "S4": "Fault (STA-2 down 60-90 s)",
+                 "S5": "Training-regime loss (-7 dBm)"}
 FAULT_NODE, FAULT_START, FAULT_END = 1, 60.0, 90.0   # S4, matches run_campaign.sh
 
 
@@ -38,10 +39,20 @@ def load_cfg():
     classes = cfg["system"]["node_classes"]
     w = np.array([cfg["scheduler"]["weights"][c] for c in classes], float)
     ceil = np.array([cfg["scheduler"]["shield_ceilings_s"][c] for c in classes], float)
-    return w, ceil
+    tau = np.array([cfg["scheduler"]["thresholds"][c] for c in classes], float) / 1000.0
+    return w, ceil, tau
 
 
-def run_metrics(csv_path, w, ceil):
+def longest_run(mask):
+    """Length (in samples) of the longest contiguous True stretch."""
+    best = cur = 0
+    for v in mask:
+        cur = cur + 1 if v else 0
+        best = max(best, cur)
+    return best
+
+
+def run_metrics(csv_path, w, ceil, tau=None):
     df = pd.read_csv(csv_path)
     aoi = df[["aoi_n1", "aoi_n2", "aoi_n3", "aoi_n4"]].to_numpy()
     cw = (aoi * w).sum(axis=1) / w.sum()
@@ -57,6 +68,23 @@ def run_metrics(csv_path, w, ceil):
         m[f"aoi_max_n{i+1}"] = aoi[:, i].max()
         m[f"viol_n{i+1}"] = (aoi[:, i] >= ceil[i]).mean()
     m["urgent_viol"] = max(m["viol_n1"], m["viol_n2"])
+    if tau is not None:
+        # pre-registered metrics (docs/EVAL_PROTOCOL.md): soft-deadline exceedance, tail AoI, fairness.
+        slot_s = float(np.median(np.diff(df["timestamp_pi"].to_numpy())))
+        m["cw_aoi_p99"] = np.percentile(cw, 99)
+        for i in range(4):
+            over = aoi[:, i] > tau[i]
+            m[f"soft_exc_n{i+1}"] = over.mean()
+            m[f"aoi_p95_n{i+1}"] = np.percentile(aoi[:, i], 95)
+            m[f"aoi_p99_n{i+1}"] = np.percentile(aoi[:, i], 99)
+            m[f"stale_run_max_n{i+1}"] = longest_run(over) * slot_s
+        m["soft_exc_urgent"] = (m["soft_exc_n1"] + m["soft_exc_n2"]) / 2
+        m["soft_exc_important"] = m["soft_exc_n3"]
+        m["soft_exc_routine"] = m["soft_exc_n4"]
+        urgent_age = np.maximum(aoi[:, 0], aoi[:, 1])
+        m["aoi_p99_urgent"] = np.percentile(urgent_age, 99)
+        x = aoi.mean(axis=0) / tau
+        m["jain_norm_aoi"] = x.sum() ** 2 / (len(x) * (x ** 2).sum())
     return m, df
 
 
@@ -105,13 +133,13 @@ def main():
     root = Path(args.results_root)
     out = root / "summary"
     (out / "figures").mkdir(parents=True, exist_ok=True)
-    w, ceil = load_cfg()
+    w, ceil, tau = load_cfg()
 
     rows, fault_rows = [], []
     for csv in sorted(root.glob("S*/*/seed*/log.csv")):
         sc, pol, seed_dir = csv.parts[-4], csv.parts[-3], csv.parts[-2]
         seed = int(re.sub(r"\D", "", seed_dir))
-        m, df = run_metrics(csv, w, ceil)
+        m, df = run_metrics(csv, w, ceil, tau)
         is_dqn = pol.startswith("dqn_seed")
         m.update(scenario=sc, policy_dir=pol, family="dqn" if is_dqn else pol,
                  dqn_seed=int(pol.split("seed")[-1]) if is_dqn else -1, eval_seed=seed)

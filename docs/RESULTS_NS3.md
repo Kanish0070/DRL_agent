@@ -132,3 +132,5 @@ selected after seeing the ns-3 results; this is disclosed in the dashboard and h
 In S4 liveness masking stops grants to the unreachable node (a recovery probe is re-sent every 2 s). The DQN recovers in
 about 0.67 s on average (up to 2 s in the worst run), similar to Max-Weight/CAG (0.63 s) and slower than Round Robin
 (0.16 s); the dead node's own AoI still grows for the whole outage.
+
+See also: [PANEL_EVIDENCE.md](PANEL_EVIDENCE.md) for the deadline-based gains (pre-registered metrics) and the S5 scenario.

@@ -25,6 +25,7 @@ SCENARIOS = {
     "S2": "--interferer=cochannel --intfStart=30 --intfStop=150 --intfRateMbps=2.0 --intfLossNode=3 --intfLoss=0.2",
     "S3": "--txPower=5.0 --mobileNode=3 --mobileSpeed=1.0",
     "S4": "--failNode=1 --failAt=60 --recoverAt=90",
+    "S5": "--txPower=-7.0 --distanceScale=1.0",
 }
 DEMO_FLAGS = f"--scenarioFile={ROOT / 'ns3-sim' / 'scenarios' / 'demo.json'}"
 HEURISTICS = ["rr", "maxweight", "cag"]

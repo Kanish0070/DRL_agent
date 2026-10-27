@@ -35,8 +35,8 @@ except Exception:
 
 echo "Evaluation seeds (${#SEEDS[@]}): ${SEEDS[*]}"
 
-# Scenarios to evaluate (S0 to S4)
-SCENARIOS=("S0" "S1" "S2" "S3" "S4")
+# Scenarios to evaluate (S0 to S5); override with e.g. SCENARIOS_RUN="S5" to run a subset
+read -r -a SCENARIOS <<< "${SCENARIOS_RUN:-S0 S1 S2 S3 S4 S5}"
 
 # Policies: 5 baselines + 5 DQN seeds
 BASELINES=("rr" "fpq" "maxweight" "cag" "random")
@@ -67,6 +67,10 @@ for sc in "${SCENARIOS[@]}"; do
             ;;
         "S4")  # Fault: urgent STA-2 down 60-90 s
             SC_FLAGS="${SC_FLAGS} --failNode=1 --failAt=60 --recoverAt=90"
+            ;;
+        "S5")  # Training-regime loss (~22% wasted slots under RR, all four nodes still associated).
+            # -7 dBm chosen from Round Robin probe runs only: -9 dBm drops STA-4's association (fault, not loss).
+            SC_FLAGS="${SC_FLAGS} --txPower=-7.0 --distanceScale=1.0"
             ;;
     esac
 
