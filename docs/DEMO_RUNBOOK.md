@@ -18,6 +18,17 @@ Start once: `python3 tools/demo_server.py --open-browser --live` (the page contr
 3. **Evidence (about 3 min):** click *Evidence*: campaign bars with CIs, the paired table, tail safety, seed spread, then
    "Replay this run" on the best cases. Say that these are selected best cases, then show the average table.
 
+## Showing that the scheduler works (main page, below the topology)
+- **Freshness lanes:** one lane per node; green = fresh, red = at its safety ceiling, white tick = new update delivered. The
+  caption above them narrates the latest event ("STA-4 delivered a fresh update, age dropped 1.10 s -> 0.00 s"). Press
+  *Classic sawtooth* for the standard plot.
+- **Where do grants go:** grant share per node over 30 s vs the 25% fair share (urgent nodes should get more; a failed node less).
+- **Why that node:** the latest decision with its priority (weight x age) and signal. The "matches Max-Weight" percentage is a
+  derived yardstick (a real Max-Weight run scores about 99% on it): a lower score means a different learned strategy, not a bug.
+- **Safety / winning:** % of time every live node is under its ceiling, worst urgent wait, and the running gap vs Round Robin.
+- **Grant timeline:** a tick per grant per node. Compare RR (regular rhythm) with DQN/Max-Weight (adaptive) using the
+  *Policy* menu in a compare run; watch it react at the failure at 70 s.
+
 ## What to say (and not say)
 - The DQN beats Round Robin by 8-13%, Random by about 50% and Fixed Priority by about 80%.
 - Versus Max-Weight/CAG it is on average about 5% worse (tie with CAG in S1); seeds 1-3 are close, 0 and 4 about 10% worse.

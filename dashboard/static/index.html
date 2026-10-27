@@ -249,6 +249,15 @@
     .hbar .fl { position:absolute; top:0; left:0; height:100%; border-radius:3px; } .hbar .ci { position:absolute; top:4px; height:2px; background:#fff; opacity:.8; }
     .hbar .vl { width:96px; text-align:right; font-family:monospace; }
     .case-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem; }
+    .work-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:14px; }
+    .work-h { font-size:0.82rem; font-weight:700; color:#fff; margin-bottom:6px; }
+    .work-note { font-size:0.74rem; color:var(--text-muted); margin-top:6px; }
+    .work-box { font-size:0.82rem; background:#0b1220; border:1px solid var(--border); border-radius:6px; padding:8px 10px; line-height:1.5; }
+    .work-box b { color:#fff; } .good { color:#34d399; font-weight:700; } .warn { color:#f59e0b; font-weight:700; }
+    .share { display:flex; align-items:center; gap:6px; font-size:0.75rem; margin:3px 0; }
+    .share .nm { width:78px; color:var(--text-muted); } .share .tr { position:relative; flex:1; height:12px; background:#090d16; border-radius:3px; }
+    .share .fl { position:absolute; top:0; left:0; height:100%; border-radius:3px; } .share .fair { position:absolute; top:-2px; width:2px; height:16px; background:#fff; opacity:.8; }
+    .share .vl { width:44px; text-align:right; font-family:monospace; }
     .sbs4 { grid-template-columns: repeat(4, 1fr) !important; }
     @media (max-width: 1100px) { .sbs4 { grid-template-columns: repeat(2, 1fr) !important; } }
   </style>
@@ -393,13 +402,38 @@
     </div>
   </div>
 
-  <!-- Sawtooth Waveform Card -->
+  <!-- AoI freshness view (default) + classic sawtooth (toggle) -->
   <div class="card" style="margin-bottom: 16px;">
     <div class="card-header">
-      <span>Rolling AoI Sawtooth Trajectory (Last 30 Seconds)</span>
-      <span style="font-size: 0.8rem; color: var(--text-muted);">Real-time linear rise and reset on packet ACK</span>
+      <span id="freshTitle">How old is each node's data? (last 30 s)</span>
+      <button id="btnSaw" class="secondary" style="padding:3px 10px; font-size:0.75rem;">Classic sawtooth</button>
     </div>
-    <canvas id="sawtoothCanvas" width="900" height="240"></canvas>
+    <div id="freshHelp" style="font-size:0.82rem; color:var(--text-muted); margin-bottom:4px;"></div>
+    <div id="freshNote" style="font-size:0.85rem; color:#7dd3fc; min-height:1.3em; margin-bottom:6px;"></div>
+    <canvas id="freshCanvas" width="900" height="250" style="width:100%; height:auto; background:#090d16; border-radius:6px;"></canvas>
+    <canvas id="sawtoothCanvas" width="900" height="240" style="display:none;"></canvas>
+    <div id="freshLegend" class="legend">
+      <span><i style="background:#10b981"></i>fresh</span><span><i style="background:#f59e0b"></i>getting stale</span>
+      <span><i style="background:#ef4444"></i>at its safety ceiling</span><span><i style="background:#fff"></i>new update delivered</span>
+      <span><i style="background:#475569"></i>node down</span>
+    </div>
+  </div>
+
+  <!-- Is the scheduler working? -->
+  <div class="card" style="margin-bottom: 16px;" id="workingCard">
+    <div class="card-header"><span>Is the scheduler working? <span class="srctag" id="workTag">derived from the logged run</span></span>
+      <span style="font-size:0.75rem; color:var(--text-muted);" id="workWho"></span></div>
+    <div class="work-grid">
+      <div><div class="work-h">1. Where do the grants go? (last 30 s)</div><div id="shareBars"></div>
+        <div class="work-note">A fair scheduler gives every node 25%. Look for the urgent nodes (STA-1, STA-2) getting more, and for a failed or weak node getting fewer.</div></div>
+      <div><div class="work-h">2. Why that node? (latest decision)</div><div id="whyBox" class="work-box"></div>
+        <div id="agreeBox" class="work-box" style="margin-top:6px;"></div></div>
+      <div><div class="work-h">3. Is it safe and winning?</div><div id="safeBox" class="work-box"></div></div>
+    </div>
+    <div class="work-h" style="margin-top:10px;">4. Grant timeline (last 30 s): one tick per grant</div>
+    <canvas id="grantRaster" width="900" height="96" style="width:100%; height:auto; background:#090d16; border-radius:6px;"></canvas>
+    <div class="legend"><span><i style="background:#38bdf8"></i>delivered</span><span><i style="background:#f87171"></i>lost</span>
+      <span><i style="background:#ef4444; outline:2px solid #fff"></i>shield-forced grant</span><span><i style="background:#475569"></i>sent to a down node</span></div>
   </div>
 
   <!-- Side-by-Side Mode Container (Hidden by default) -->
@@ -648,7 +682,7 @@
     let liveHalted = false;   // user pressed Stop
     let currentFrame = null;
     let lastSpawned = null;
-    const freshStats = () => ({ total: 0, ok: 0, wasted: 0, shield: 0, cwSum: 0 });
+    const freshStats = () => ({ total: 0, ok: 0, wasted: 0, shield: 0, cwSum: 0, over: 0, maxUrg: 0 });
 
     const scenDef = () => SCEN[curScen] || SCEN.demo;
     function fxAt(t) { return Object.assign({ interfererOn: false, sta4Distance: 18.0, sta2Dead: false }, scenDef().fx(t)); }
@@ -670,8 +704,13 @@
       const lv = raw.liveness;
       const cw = raw.aoi.reduce((acc, a, i) => acc + a * NODES[i].weight, 0.0) / W_SUM;
       st.cwSum += cw;
+      const deadNow = fx.sta2Dead || (!!lv && lv[1] === 2);
+      const over = raw.aoi.some((a, i) => !(i === 1 && deadNow) && a >= NODES[i].ceilingS);
+      if (over) st.over++;
+      st.maxUrg = Math.max(st.maxUrg, raw.aoi[0], deadNow ? 0 : raw.aoi[1]);
       return {
-        slot: raw.slot_id, t, granted: raw.granted, shieldFired: !!raw.shield, success,
+        slot: raw.slot_id, t, granted: raw.granted, delivered: raw.delivered,
+        withinCeilPct: (1 - st.over / st.total) * 100, maxUrgent: st.maxUrg, shieldFired: !!raw.shield, success,
         aois: raw.aoi, rssi: raw.rssi, cwAoI: cw, cwMean: st.cwSum / st.total, policyId: raw.policy_id,
         deliveredMs: (raw.delivered_age_us || 0) / 1000,
         pdr: st.ok / st.total * 100, shieldCount: st.shield, shieldPct: st.shield / st.total * 100,
@@ -779,6 +818,155 @@
     }
 
     // ------------------------------------------------------------------
+    // Freshness view: one lane per node, colour = how stale that node's data is relative to its safety ceiling
+    // ------------------------------------------------------------------
+    let sawMode = false;
+    const freshCv = document.getElementById("freshCanvas"), freshCtx = freshCv.getContext("2d");
+    const staleColor = f => {   // 0 = fresh (green) -> 0.5 amber -> 1 = at ceiling (red)
+      f = Math.max(0, Math.min(1, f));
+      const a = f < 0.5 ? [16, 185, 129] : [245, 158, 11], b = f < 0.5 ? [245, 158, 11] : [239, 68, 68];
+      const k = f < 0.5 ? f / 0.5 : (f - 0.5) / 0.5;
+      return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',')})`;
+    };
+    document.getElementById("freshHelp").innerHTML =
+      "<b>Age of Information (AoI)</b> = how old the newest update from a node is. It grows by 1 s every second and snaps back to ~0 " +
+      "when a new update arrives (white tick). A good scheduler keeps every lane green, urgent nodes first.";
+    let lastDeliveryNote = "";
+
+    function renderFreshness(run, idx) {
+      const ctx = freshCtx, W = freshCv.width, H = freshCv.height, padL = 78, padR = 118, padT = 6, laneH = 52, gap = 6;
+      ctx.clearRect(0, 0, W, H);
+      const win = 300, lo = Math.max(0, idx - win + 1);
+      const plotW = W - padL - padR, sw = plotW / win;
+      NODES.forEach((n, ni) => {
+        const y0 = padT + ni * (laneH + gap);
+        ctx.fillStyle = "#e2e8f0"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "left";
+        ctx.fillText(n.name, 6, y0 + 18);
+        ctx.fillStyle = "#94a3b8"; ctx.font = "9px sans-serif"; ctx.fillText(`${n.class}, limit ${n.ceilingS}s`, 6, y0 + 32);
+        for (let s = lo; s <= idx; s++) {
+          const f = run[s], x = padL + (s - lo) * sw;
+          if (ni === 1 && f.sta2Dead) { ctx.fillStyle = "#334155"; ctx.fillRect(x, y0, sw + 0.6, laneH); continue; }
+          ctx.fillStyle = staleColor(f.aois[ni] / n.ceilingS); ctx.fillRect(x, y0, sw + 0.6, laneH);
+        }
+        // AoI trace on top of the colour band (height = age / ceiling)
+        ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 1.2; ctx.beginPath();
+        for (let s = lo; s <= idx; s++) {
+          const f = run[s], x = padL + (s - lo + 0.5) * sw, y = y0 + laneH - Math.min(1, f.aois[ni] / n.ceilingS) * (laneH - 4) - 2;
+          if (s === lo) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        // deliveries
+        ctx.fillStyle = "#fff";
+        for (let s = lo; s <= idx; s++) if (run[s].delivered === ni && run[s].success) ctx.fillRect(padL + (s - lo) * sw, y0, Math.max(1.2, sw), 6);
+        // live age clock
+        const cur = run[idx], dead = ni === 1 && cur.sta2Dead;
+        ctx.textAlign = "left"; ctx.fillStyle = dead ? "#94a3b8" : "#fff"; ctx.font = "bold 15px monospace";
+        ctx.fillText(dead ? "DOWN" : `${cur.aois[ni].toFixed(2)} s`, W - padR + 10, y0 + 24);
+        ctx.fillStyle = "#94a3b8"; ctx.font = "9px sans-serif"; ctx.fillText(dead ? "no updates" : `of ${n.ceilingS} s limit`, W - padR + 10, y0 + 38);
+      });
+      // scenario event markers
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(226,232,240,0.55)"; ctx.fillStyle = "#cbd5e1"; ctx.font = "9px sans-serif";
+      scenDef().events.forEach(ev => {
+        if (ev.t <= 0) return;
+        const sIdx = run.findIndex(f => f.t >= ev.t - 1e-6);
+        if (sIdx < lo || sIdx > idx) return;
+        const x = padL + (sIdx - lo) * sw; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+        ctx.textAlign = "left"; ctx.fillText(ev.text.length > 34 ? ev.text.slice(0, 33) + "…" : ev.text, x + 3, H - 3);
+      });
+      ctx.setLineDash([]);
+      // time axis
+      ctx.fillStyle = "#64748b"; ctx.textAlign = "left"; ctx.font = "9px sans-serif";
+      ctx.fillText(`t = ${run[lo].t.toFixed(0)} s`, padL, H - 3); ctx.textAlign = "right"; ctx.fillText(`t = ${run[idx].t.toFixed(0)} s`, W - padR, H - 3);
+      // explanatory caption for the latest meaningful event
+      for (let s = idx; s > Math.max(0, idx - 15); s--) {
+        const f = run[s], p = run[s - 1];
+        if (f.success && f.delivered >= 0 && p && p.aois[f.delivered] > 0.8) {
+          lastDeliveryNote = `t=${f.t.toFixed(1)}s: ${NODES[f.delivered].name} delivered a fresh update, its data age dropped from ${p.aois[f.delivered].toFixed(2)} s to ${f.aois[f.delivered].toFixed(2)} s.`;
+          break;
+        }
+      }
+      if (cur_sta2(run[idx])) lastDeliveryNote = `STA-2 is down: no updates are arriving, so its data keeps ageing (${run[idx].aois[1].toFixed(1)} s and counting).`;
+      document.getElementById("freshTitle").innerText = "How old is each node's data? (last 30 s)" + (lastDeliveryNote ? "  —  " + lastDeliveryNote : "");
+    }
+    const cur_sta2 = f => f.sta2Dead;
+
+    document.getElementById("btnSaw").addEventListener("click", () => {
+      sawMode = !sawMode;
+      document.getElementById("sawtoothCanvas").style.display = sawMode ? "block" : "none";
+      freshCv.style.display = sawMode ? "none" : "block";
+      document.getElementById("freshLegend").style.display = sawMode ? "none" : "flex";
+      document.getElementById("freshHelp").style.display = sawMode ? "none" : "block";
+      document.getElementById("btnSaw").innerText = sawMode ? "Freshness view" : "Classic sawtooth";
+      document.getElementById("freshTitle").innerText = sawMode ? "Rolling AoI sawtooth (last 30 s)" : "How old is each node's data? (last 30 s)";
+      document.getElementById("freshNote").style.display = sawMode ? "none" : "block";
+      updateFrame();
+    });
+
+    // ------------------------------------------------------------------
+    // "Is the scheduler working?" panel (all values derived from the logged run, not from ns-3 internals)
+    // ------------------------------------------------------------------
+    const rasterCv = document.getElementById("grantRaster"), rasterCtx = rasterCv.getContext("2d");
+    (function buildShare() {
+      const box = document.getElementById("shareBars");
+      NODES.forEach(n => { const d = document.createElement("div"); d.className = "share";
+        d.innerHTML = `<span class="nm">${n.name} (w=${n.weight})</span><span class="tr"><span class="fl" id="shareFl_${n.id}" style="background:${n.color};width:0%"></span><span class="fair" style="left:25%"></span></span><span class="vl" id="shareVl_${n.id}">0%</span>`;
+        box.appendChild(d); });
+    })();
+
+    function renderWorking(run, idx) {
+      const win = 300, lo = Math.max(0, idx - win + 1), n = idx - lo + 1;
+      const cnt = [0, 0, 0, 0]; let agree = 0, comparable = 0, lost = 0;
+      for (let s = lo; s <= idx; s++) {
+        const f = run[s]; if (f.granted >= 0 && f.granted < 4) cnt[f.granted]++;
+        if (!f.success) lost++;
+        if (s > 0) {   // what a simple Max-Weight rule (largest weight x age) would pick given the previous state
+          const p = run[s - 1]; let best = -1, bv = -1;
+          NODES.forEach((nd, i) => { if (i === 1 && f.sta2Dead) return; const v = nd.weight * p.aois[i]; if (v > bv) { bv = v; best = i; } });
+          comparable++; if (best === f.granted) agree++;
+        }
+      }
+      NODES.forEach((nd, i) => { const pc = cnt[i] / n * 100;
+        document.getElementById(`shareFl_${nd.id}`).style.width = `${Math.min(100, pc)}%`;
+        document.getElementById(`shareVl_${nd.id}`).innerText = `${pc.toFixed(0)}%`; });
+
+      const f = run[idx], p = idx > 0 ? run[idx - 1] : f;
+      const pri = NODES.map((nd, i) => nd.weight * p.aois[i]);
+      let top = 0; pri.forEach((v, i) => { if (!(i === 1 && f.sta2Dead) && v > pri[top]) top = i; });
+      const g = f.granted, G = NODES[g] || { name: "?" };
+      let why = `<b>${f.shieldFired ? "SAFETY SHIELD override" : "Granted"}: ${G.name}</b> (priority ${pri[g].toFixed(1)}, data age ${p.aois[g].toFixed(2)} s, signal ${f.rssi ? f.rssi[g].toFixed(0) : "?"} dBm).<br>`;
+      if (g === top) why += `This was the node with the highest priority (weight × age), so it matches the Max-Weight rule.`;
+      else why += `Highest priority was <b>${NODES[top].name}</b> (${pri[top].toFixed(1)}, signal ${f.rssi ? f.rssi[top].toFixed(0) : "?"} dBm), but the scheduler chose ${G.name}: `
+                + (f.rssi && f.rssi[top] < -75 ? "that link is weak, so a grant there is likely wasted." : "a learned choice that differs from the simple rule.");
+      document.getElementById("whyBox").innerHTML = why;
+      const ap = comparable ? agree / comparable * 100 : 0;
+      document.getElementById("agreeBox").innerHTML =
+        `Matches the simple Max-Weight rule in <b>${ap.toFixed(0)}%</b> of the last ${comparable} decisions; the other ${(100 - ap).toFixed(0)}% are where it deviates ` +
+        `(shield: ${f.shieldCount} total). Wasted grants in this window: <b>${lost}</b> of ${n}.<br><span style="color:var(--text-muted)">For reference, a real Max-Weight scheduler scores about 99% on this check, so a lower score means a learned, different strategy, not a broken one. Whether it is better is shown by the AoI results, not by this number.</span>`;
+
+      const rr = runs.rr && runs.rr.frames[Math.min(idx, runs.rr.frames.length - 1)];
+      let vs = "";
+      if (rr && mainFam() !== "rr") { const d = (f.cwMean - rr.cwMean) / rr.cwMean * 100;
+        vs = `<br>Average cw-AoI so far: <b>${f.cwMean.toFixed(3)} s</b>, <span class="${d < 0 ? 'good' : 'warn'}">${d <= 0 ? "" : "+"}${d.toFixed(1)}% vs Round Robin</span>.`; }
+      else vs = `<br>Average cw-AoI so far: <b>${f.cwMean.toFixed(3)} s</b> (add Round Robin via the compare run to see the gap).`;
+      document.getElementById("safeBox").innerHTML =
+        `Time with every live node under its safety ceiling: <span class="${f.withinCeilPct > 99 ? 'good' : 'warn'}">${f.withinCeilPct.toFixed(2)}%</span>.<br>` +
+        `Worst wait of an urgent node so far: <b>${f.maxUrgent.toFixed(2)} s</b> (limit 2.0 s).` + vs;
+      document.getElementById("workWho").innerText = `${FAM_LABEL[mainFam()] || ""}${f.policyId ? " · " + f.policyId : ""}`;
+
+      // grant timeline raster
+      const c = rasterCtx, W = rasterCv.width, H = rasterCv.height, padL = 60, rowH = H / 4, sw = (W - padL - 6) / win;
+      c.clearRect(0, 0, W, H);
+      NODES.forEach((nd, i) => { c.fillStyle = "#94a3b8"; c.font = "10px sans-serif"; c.textAlign = "left"; c.fillText(nd.name, 6, i * rowH + rowH / 2 + 3);
+        c.strokeStyle = "#1e293b"; c.beginPath(); c.moveTo(padL, (i + 1) * rowH); c.lineTo(W, (i + 1) * rowH); c.stroke(); });
+      for (let s = lo; s <= idx; s++) {
+        const q = run[s]; if (q.granted < 0 || q.granted > 3) continue;
+        const x = padL + (s - lo) * sw, y = q.granted * rowH + 4, dead = q.granted === 1 && q.sta2Dead;
+        c.fillStyle = dead ? "#475569" : q.success ? "#38bdf8" : "#f87171"; c.fillRect(x, y, Math.max(1.5, sw - 0.5), rowH - 8);
+        if (q.shieldFired) { c.strokeStyle = "#fff"; c.lineWidth = 1.5; c.strokeRect(x - 0.5, y - 1, Math.max(2.5, sw), rowH - 6); c.lineWidth = 1; }
+      }
+    }
+
+    // ------------------------------------------------------------------
     // Per-frame update
     // ------------------------------------------------------------------
     function fmtT(t) { return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`; }
@@ -815,7 +1003,8 @@
         fill.style.backgroundColor = (val >= n.ceilingS) ? "#dc2626" : n.color;
       });
 
-      renderSawtooth(run, currentSlot);
+      if (sawMode) renderSawtooth(run, currentSlot); else renderFreshness(run, currentSlot);
+      renderWorking(run, currentSlot);
       if (sideBySideMode) updateSbs();
 
       if (source !== 'live' && isPlaying) currentSlot = (currentSlot + 1) % Math.max(1, run.length);
