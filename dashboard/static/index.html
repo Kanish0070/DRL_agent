@@ -228,6 +228,29 @@
       gap: 8px;
     }
     .event-time { font-weight: 700; color: var(--accent); }
+    .srctag { display:inline-block; font-size:0.68rem; padding:1px 8px; border-radius:10px; border:1px solid var(--border);
+              color:var(--text-muted); margin-left:8px; vertical-align:middle; font-weight:600; }
+    .srctag.live { color:#fca5a5; border-color:#7f1d1d; }
+    .srctag.rec { color:#7dd3fc; border-color:#0c4a6e; }
+    .srctag.agg { color:#86efac; border-color:#14532d; }
+    .scen-caption { background: var(--bg-card); border:1px solid var(--border); border-left:4px solid var(--accent);
+                    border-radius:8px; padding:8px 14px; margin-bottom:12px; font-size:0.9rem; }
+    .scen-caption b { color:#fff; }
+    #evidencePanel { display:none; }
+    #evidencePanel h3 { margin:18px 0 6px; font-size:1.05rem; color:#fff; }
+    #evidencePanel .note { font-size:0.8rem; color:var(--text-muted); margin-bottom:8px; }
+    .ev-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
+    .ev-table { width:100%; border-collapse:collapse; font-size:0.82rem; }
+    .ev-table th, .ev-table td { padding:4px 8px; border-bottom:1px solid var(--border); text-align:right; }
+    .ev-table th:first-child, .ev-table td:first-child { text-align:left; }
+    .win { color:#34d399; font-weight:700; } .loss { color:#f87171; font-weight:700; } .tie { color:#94a3b8; }
+    .hbar { display:flex; align-items:center; gap:6px; font-size:0.75rem; margin:2px 0; }
+    .hbar .nm { width:128px; color:var(--text-muted); } .hbar .tr { position:relative; flex:1; height:10px; background:#090d16; border-radius:3px; }
+    .hbar .fl { position:absolute; top:0; left:0; height:100%; border-radius:3px; } .hbar .ci { position:absolute; top:4px; height:2px; background:#fff; opacity:.8; }
+    .hbar .vl { width:96px; text-align:right; font-family:monospace; }
+    .case-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem; }
+    .sbs4 { grid-template-columns: repeat(4, 1fr) !important; }
+    @media (max-width: 1100px) { .sbs4 { grid-template-columns: repeat(2, 1fr) !important; } }
   </style>
 </head>
 <body>
@@ -256,11 +279,19 @@
     
     <label for="sourceSelect" style="font-size: 0.85rem; color: var(--text-muted);">Source:</label>
     <select id="sourceSelect">
-      <option value="synthetic" selected>Synthetic demo (in-browser)</option>
+      <option value="replay" selected>Recorded ns-3 run</option>
       <option value="live">Live ns-3 (UDP)</option>
-      <option value="replay">Replay ns-3 CSV</option>
     </select>
-    <select id="replayFile" style="display:none;"></select>
+    <label for="scenarioSelect" style="font-size: 0.85rem; color: var(--text-muted);">Scenario:</label>
+    <select id="scenarioSelect">
+      <option value="demo">Demo timeline (120 s)</option>
+      <option value="S0">S0 Nominal</option>
+      <option value="S1">S1 Weak links</option>
+      <option value="S2">S2 Co-channel interferer</option>
+      <option value="S3">S3 Mobility</option>
+      <option value="S4">S4 Node fault</option>
+    </select>
+    <select id="caseSelect" style="display:none;"></select>
 
     <label for="speedSelect" style="font-size: 0.85rem; color: var(--text-muted);">Speed:</label>
     <select id="speedSelect">
@@ -281,12 +312,17 @@
       <option value="cag">CAG (Channel-Aware Greedy)</option>
       <option value="maxweight">Max-Weight</option>
       <option value="rr">Round Robin</option>
-      <option value="fpq">Fixed Priority Queue</option>
     </select>
 
-    <button id="btnToggleSideBySide" class="secondary">Toggle Side-by-Side</button>
+    <button id="btnToggleSideBySide" class="secondary">Side-by-Side</button>
+    <button id="btnEvidence" class="secondary">Evidence (1000 runs)</button>
   </div>
 
+  <div class="scen-caption" id="scenCaption"></div>
+
+  <div id="evidencePanel"></div>
+
+  <div id="liveView">
   <!-- KPI Cards -->
   <div class="kpi-row">
     <div class="kpi-card">
@@ -352,147 +388,71 @@
 
   <!-- Side-by-Side Mode Container (Hidden by default) -->
   <div id="sideBySideContainer" style="display: none;">
-    <h3 style="margin-bottom: 10px; font-size: 1.1rem; color: #fff;">Synchronized Side-by-Side Comparison</h3>
-    <div class="side-by-side-grid">
-      <!-- RR Column -->
-      <div class="policy-column">
-        <div class="policy-title">
-          <span>Round Robin (RR)</span>
-          <span id="sbsCwAoI_rr" style="color: var(--urgent);">0.00 s</span>
-        </div>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">PDR: <span id="sbsPdr_rr">100%</span> | Wasted: <span id="sbsWasted_rr">0</span></div>
-        <div id="sbsBars_rr"></div>
-      </div>
-
-      <!-- CAG Column -->
-      <div class="policy-column">
-        <div class="policy-title">
-          <span>Channel-Aware Greedy</span>
-          <span id="sbsCwAoI_cag" style="color: var(--fast);">0.00 s</span>
-        </div>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">PDR: <span id="sbsPdr_cag">100%</span> | Wasted: <span id="sbsWasted_cag">0</span></div>
-        <div id="sbsBars_cag"></div>
-      </div>
-
-      <!-- DQN Column -->
-      <div class="policy-column active">
-        <div class="policy-title">
-          <span style="color: var(--accent);">DQN + Shield (Proposed)</span>
-          <span id="sbsCwAoI_dqn" style="color: var(--routine);">0.00 s</span>
-        </div>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">PDR: <span id="sbsPdr_dqn">100%</span> | Shields: <span id="sbsShield_dqn">0</span></div>
-        <div id="sbsBars_dqn"></div>
-      </div>
+    <h3 style="margin-bottom: 10px; font-size: 1.1rem; color: #fff;">Side-by-Side Comparison <span class="srctag" id="sbsTag">Recorded ns-3 run</span></h3>
+    <div class="side-by-side-grid sbs4" id="sbsGrid"></div>
+    <div class="card" style="margin-top:12px;">
+      <div class="card-header"><span>Criticality-weighted AoI over time (30 s moving average)</span>
+        <span style="font-size:0.75rem;color:var(--text-muted);">lower is better &middot; dashed lines = scenario events</span></div>
+      <canvas id="cwChart" width="900" height="170"></canvas>
     </div>
   </div>
+  </div><!-- /liveView -->
 
   <script>
-    // Configuration & Scenario Definitions
+    // Criticality weights (D6.1: 10/10/3/1). cw-AoI = sum(w*AoI)/sum(w): the same metric as the campaign tables.
     const NODES = [
-      { id: 0, name: "STA-1", class: "urgent", weight: 8.0, dist: 5.0, softMs: 200, ceilingS: 2.0, color: "#ef4444" },
-      { id: 1, name: "STA-2", class: "urgent", weight: 8.0, dist: 8.0, softMs: 200, ceilingS: 2.0, color: "#f87171" },
+      { id: 0, name: "STA-1", class: "urgent", weight: 10.0, dist: 5.0, softMs: 200, ceilingS: 2.0, color: "#ef4444" },
+      { id: 1, name: "STA-2", class: "urgent", weight: 10.0, dist: 8.0, softMs: 200, ceilingS: 2.0, color: "#f87171" },
       { id: 2, name: "STA-3", class: "fast", weight: 3.0, dist: 12.0, softMs: 500, ceilingS: 6.0, color: "#f59e0b" },
       { id: 3, name: "STA-4", class: "routine", weight: 1.0, dist: 18.0, softMs: 1000, ceilingS: 20.0, color: "#10b981" }
     ];
+    const W_SUM = NODES.reduce((a, n) => a + n.weight, 0);
+    const FAMILIES = ['rr', 'maxweight', 'cag', 'dqn'];
+    const FAM_LABEL = { rr: 'Round Robin', maxweight: 'Max-Weight', cag: 'Channel-Aware Greedy', dqn: 'DQN + Shield (proposed)' };
+    const FAM_COLOR = { rr: '#ef4444', maxweight: '#f59e0b', cag: '#a78bfa', dqn: '#38bdf8' };
+    const famOf = pid => (pid || '').startsWith('dqn') ? 'dqn' : (pid || '');
 
-    const TIMELINE_EVENTS = [
-      { t: 0, text: "Nominal operating conditions across all 4 nodes" },
-      { t: 20, text: "Co-channel interferer ACTIVE near STA-4 (packet loss rises)" },
-      { t: 45, text: "Interferer OFF; STA-4 begins walking towards cell edge (1.0 m/s)" },
-      { t: 70, text: "FAULT INJECTED: Urgent STA-2 unreachable (link failure)" },
-      { t: 100, text: "FAULT CLEARED: STA-2 reconnected; rapid AoI discharge priority" },
-      { t: 120, text: "Scenario complete" }
-    ];
+    // STA-4 walk, mirroring the ns-3 waypoint model (1 m/s out from 45 s to 45 m, back from 80 s)
+    function sta4DistanceAt(t) {
+      if (t < 45) return 18.0;
+      if (t < 72) return 18.0 + (t - 45);
+      if (t < 80) return 45.0;
+      if (t < 107) return 45.0 - (t - 80);
+      return 18.0;
+    }
 
-    // State Variables
+    // Scenario descriptions + the overlay (interferer / walk / fault) each one draws on the topology.
+    // Times match ns3-sim/scripts/run_campaign.sh and scenarios/demo.json exactly.
+    const SCEN = {
+      demo: { title: "Demo timeline (120 s)", caption: "One run chaining all stresses: interferer, walking node, then a node fault.",
+        events: [
+          { t: 0, text: "Nominal operating conditions across all 4 nodes" },
+          { t: 20, text: "Co-channel interferer ACTIVE (extra loss on STA-4)" },
+          { t: 45, text: "Interferer OFF; STA-4 begins walking towards cell edge (1.0 m/s)" },
+          { t: 70, text: "FAULT INJECTED: Urgent STA-2 unreachable (link failure)" },
+          { t: 100, text: "FAULT CLEARED: STA-2 reconnected; rapid AoI discharge" }],
+        fx: t => ({ interfererOn: t >= 20 && t < 45, sta4Distance: sta4DistanceAt(t), sta2Dead: t >= 70 && t < 100 }) },
+      S0: { title: "S0 Nominal", caption: "Strong links (20 dBm TX, 5-18 m): all links ~98% delivery, so the contest is pure AoI-aware scheduling.",
+        events: [{ t: 0, text: "Nominal: all links strong" }], fx: t => ({}) },
+      S1: { title: "S1 Weak links", caption: "TX power -5 dBm puts the far links near the loss cliff (STA-4 about -79 dBm): wasted grants rise from 6% to 17%.",
+        events: [{ t: 0, text: "Weak links: far nodes near the delivery cliff (watch the RSSI labels)" }], fx: t => ({}) },
+      S2: { title: "S2 Co-channel interferer", caption: "Interferer near the AP from 30 s: real co-channel traffic plus 20% extra loss on routine STA-4.",
+        events: [{ t: 0, text: "Nominal" }, { t: 30, text: "Co-channel interferer ON: +20% loss on STA-4" }],
+        fx: t => ({ interfererOn: t >= 30 && t < 150 }) },
+      S3: { title: "S3 Mobility", caption: "Routine STA-4 walks 18 m to 45 m at 1 m/s and back; its RSSI falls to about -80 dBm at the edge.",
+        events: [{ t: 0, text: "Nominal" }, { t: 45, text: "STA-4 starts walking away (1 m/s)" }, { t: 72, text: "STA-4 at the cell edge (45 m)" },
+                 { t: 80, text: "STA-4 walking back" }, { t: 107, text: "STA-4 back at 18 m" }],
+        fx: t => ({ sta4Distance: sta4DistanceAt(t) }) },
+      S4: { title: "S4 Node fault", caption: "Urgent STA-2 goes dark for 30 s (60-90 s). Watch STA-1's AoI and how fast each policy re-probes after recovery.",
+        events: [{ t: 0, text: "Nominal" }, { t: 60, text: "FAULT: urgent STA-2 unreachable" }, { t: 90, text: "STA-2 recovered; AoI discharge" }],
+        fx: t => ({ sta2Dead: t >= 60 && t < 90 }) }
+    };
+
+    // State
     let isPlaying = true;
     let playbackSpeed = 2.0;
     let currentSlot = 0;
-    const totalSlots = 1200; // 120s @ 0.1s/slot
     let sideBySideMode = false;
-
-    // Simulation Data Store (synthetic playback simulation engine for self-contained operation)
-    let simulationRuns = { dqn: [], cag: [], rr: [] };
-
-    function initSimulationData() {
-      ['dqn', 'cag', 'rr'].forEach(policy => {
-        let aois = [0.0, 0.0, 0.0, 0.0];
-        let run = [];
-        let totalGrants = 0, successfulGrants = 0, shieldCount = 0, wastedCount = 0;
-
-        for (let s = 0; s < totalSlots; s++) {
-          const t = s * 0.1;
-          // Apply time growth
-          for (let i = 0; i < 4; i++) aois[i] += 0.1;
-
-          // Event conditions
-          const interfererOn = t >= 20.0 && t < 45.0;
-          const sta4Distance = (t >= 45.0 && t < 70.0) ? 18.0 + (t - 45.0) * 1.0 : 18.0;
-          const sta2Dead = t >= 70.0 && t < 100.0;
-
-          // Policy decision
-          let granted = 0;
-          let shieldFired = false;
-
-          // Shield logic (Urgent ceiling = 2.0s)
-          if ((aois[0] >= 1.8 || aois[1] >= 1.8) && !sta2Dead) {
-            shieldFired = true;
-            shieldCount++;
-            granted = (aois[0] >= aois[1]) ? 0 : 1;
-          } else if (policy === 'rr') {
-            granted = s % 4;
-          } else if (policy === 'cag') {
-            // Channel-aware greedy
-            let scores = aois.map((a, idx) => a * NODES[idx].weight);
-            if (interfererOn) scores[3] *= 0.5;
-            if (sta2Dead) scores[1] = -1;
-            granted = scores.indexOf(Math.max(...scores));
-          } else {
-            // DQN policy
-            let scores = aois.map((a, idx) => Math.pow(a, 1.2) * NODES[idx].weight);
-            if (sta2Dead) scores[1] = -1;
-            granted = scores.indexOf(Math.max(...scores));
-          }
-
-          // Channel outcome
-          totalGrants++;
-          let pdr = 0.98;
-          if (interfererOn && granted === 3) pdr = 0.75;
-          if (sta4Distance > 25.0 && granted === 3) pdr = 0.60;
-          if (sta2Dead && granted === 1) pdr = 0.0;
-
-          const success = Math.random() < pdr;
-          if (success) {
-            successfulGrants++;
-            aois[granted] = 0.05 + Math.random() * 0.03; // delivered age
-          } else {
-            wastedCount++;
-          }
-
-          const cwAoI = aois.reduce((acc, a, idx) => acc + a * NODES[idx].weight, 0.0) / 4.0;
-
-          run.push({
-            slot: s,
-            t: t,
-            granted: granted,
-            shieldFired: shieldFired,
-            success: success,
-            aois: [...aois],
-            cwAoI: cwAoI,
-            pdr: (successfulGrants / totalGrants) * 100.0,
-            shieldCount: shieldCount,
-            shieldPct: (shieldCount / totalGrants) * 100.0,
-            wasted: wastedCount,
-            interfererOn: interfererOn,
-            sta4Distance: sta4Distance,
-            sta2Dead: sta2Dead
-          });
-        }
-        simulationRuns[policy] = run;
-      });
-    }
-
-    initSimulationData();
 
     // Setup AoI Bars in DOM
     const aoiBarsContainer = document.getElementById("aoiBarsContainer");
@@ -511,25 +471,6 @@
         </div>
       `;
       aoiBarsContainer.appendChild(item);
-    });
-
-    // Setup Side-by-Side Mini Bars
-    ['rr', 'cag', 'dqn'].forEach(pol => {
-      const container = document.getElementById(`sbsBars_${pol}`);
-      NODES.forEach(n => {
-        const mini = document.createElement("div");
-        mini.style.marginBottom = "6px";
-        mini.innerHTML = `
-          <div style="display:flex; justify-content:space-between; font-size:0.75rem;">
-            <span>${n.name}</span>
-            <span id="sbsVal_${pol}_${n.id}">0.00s</span>
-          </div>
-          <div style="width:100%; height:6px; background:#090d16; border-radius:3px; overflow:hidden;">
-            <div id="sbsFill_${pol}_${n.id}" style="height:100%; width:0%; background:${n.color};"></div>
-          </div>
-        `;
-        container.appendChild(mini);
-      });
     });
 
     // Canvas Elements
@@ -602,6 +543,11 @@
           topoCtx.fillStyle = n.color;
         }
         topoCtx.fill();
+        if (frame.rssi) {   // ring = link quality: green strong, amber marginal, red near the loss cliff (R50 = -82 dBm)
+          const rs = frame.rssi[idx];
+          topoCtx.strokeStyle = rs > -65 ? "#34d399" : rs > -75 ? "#f59e0b" : "#ef4444";
+          topoCtx.lineWidth = 2.5; topoCtx.stroke();
+        }
 
         // Node Label
         topoCtx.fillStyle = "#fff";
@@ -616,17 +562,22 @@
         topoCtx.fillText(distText, nx, ny + 15);
       });
 
-      // Draw Interferer Indicator if active
+      // Interferer: sits near the AP (as in the ns-3 setup); its measured effect is extra loss on STA-4
       if (frame.interfererOn) {
-        const ix = cx + Math.cos(angles[3]) * 175;
-        const iy = cy + Math.sin(angles[3]) * 175;
+        const ix = cx, iy = cy - 78;
+        const [sx, sy] = nodePos(3, frame);
+        topoCtx.strokeStyle = "rgba(239,68,68,0.55)"; topoCtx.lineWidth = 1.5; topoCtx.setLineDash([2, 4]);
+        topoCtx.beginPath(); topoCtx.moveTo(ix, iy); topoCtx.lineTo(sx, sy); topoCtx.stroke(); topoCtx.setLineDash([]);
         topoCtx.fillStyle = "#ef4444";
-        topoCtx.beginPath();
-        topoCtx.arc(ix, iy, 8, 0, Math.PI * 2);
-        topoCtx.fill();
-        topoCtx.fillStyle = "#fca5a5";
-        topoCtx.font = "bold 7px sans-serif";
-        topoCtx.fillText("JAMMER", ix, iy - 10);
+        topoCtx.beginPath(); topoCtx.arc(ix, iy, 8, 0, Math.PI * 2); topoCtx.fill();
+        topoCtx.fillStyle = "#fca5a5"; topoCtx.font = "bold 7px sans-serif"; topoCtx.textAlign = "center";
+        topoCtx.fillText("INTERFERER", ix, iy - 11);
+        topoCtx.fillText("+20% loss on STA-4", (ix + sx) / 2 + 28, (iy + sy) / 2);
+      }
+      if (frame.sta2Dead) {
+        const [dx, dy] = nodePos(1, frame);
+        topoCtx.fillStyle = "#f87171"; topoCtx.font = "bold 8px sans-serif"; topoCtx.textAlign = "center";
+        topoCtx.fillText("NODE DOWN", dx, dy - 18);
       }
     }
 
@@ -649,7 +600,7 @@
       const windowSlots = 300; // 30s
       const startS = Math.max(0, currentS - windowSlots);
       const endS = Math.min(run.length - 1, startS + windowSlots);
-      const maxAoI = 8.0; // scale limit
+      const maxAoI = (curScen === 'S4' || curScen === 'demo') ? 8.0 : 3.0; // y-scale (s)
 
       NODES.forEach((n, idx) => {
         sawCtx.strokeStyle = n.color;
@@ -668,41 +619,173 @@
       });
     }
 
-    // Update Dashboard Frame
-    function updateFrame() {
-      if (source === 'live') drainLiveQueue();
+    // ------------------------------------------------------------------
+    // Data: every run (live or recorded) is {frames, stats} keyed by scheduler family
+    // ------------------------------------------------------------------
+    let source = 'replay';
+    let runs = {};
+    let curScen = 'demo';
+    let curSet = { kind: 'scenario', name: 'demo' };
+    let livePoller = null;
+    let livePollSeq = 0;
+    let currentFrame = null;
+    let lastSpawned = null;
+    const freshStats = () => ({ total: 0, ok: 0, wasted: 0, shield: 0, cwSum: 0 });
+
+    const scenDef = () => SCEN[curScen] || SCEN.demo;
+    function fxAt(t) { return Object.assign({ interfererOn: false, sta4Distance: 18.0, sta2Dead: false }, scenDef().fx(t)); }
+
+    function mainFam() {
+      const want = source === 'live' ? 'dqn' : document.getElementById("policySelect").value;
+      if (runs[want]) return want;
+      return runs.dqn ? 'dqn' : (Object.keys(runs)[0] || want);
+    }
+    function activeRun() { const r = runs[mainFam()]; return r ? r.frames : []; }
+
+    function normalizeFrame(raw, st) {
+      const t = raw.timestamp;
+      const fx = fxAt(t);
+      const success = raw.delivered >= 0 && raw.delivered === raw.granted;
+      st.total++;
+      if (success) st.ok++; else st.wasted++;
+      if (raw.shield) st.shield++;
+      const lv = raw.liveness;
+      const cw = raw.aoi.reduce((acc, a, i) => acc + a * NODES[i].weight, 0.0) / W_SUM;
+      st.cwSum += cw;
+      return {
+        slot: raw.slot_id, t, granted: raw.granted, shieldFired: !!raw.shield, success,
+        aois: raw.aoi, rssi: raw.rssi, cwAoI: cw, cwMean: st.cwSum / st.total, policyId: raw.policy_id,
+        deliveredMs: (raw.delivered_age_us || 0) / 1000,
+        pdr: st.ok / st.total * 100, shieldCount: st.shield, shieldPct: st.shield / st.total * 100,
+        wasted: st.wasted,
+        interfererOn: fx.interfererOn, sta4Distance: fx.sta4Distance,
+        sta2Dead: fx.sta2Dead || (!!lv && lv[1] === 2)
+      };
+    }
+
+    function pushLive(raw) {
+      const fam = famOf(raw.policy_id);
+      const r = runs[fam] || (runs[fam] = { frames: [], stats: freshStats(), policyId: raw.policy_id });
+      r.frames.push(normalizeFrame(raw, r.stats));
+    }
+
+    function setBadge(kind, text) {
+      const b = document.getElementById("statusBadge");
+      b.className = "badge " + (kind === 'live' ? "badge-live" : "badge-replay");
+      document.getElementById("badgeText").innerText = text;
+    }
+
+    function renderCaption() {
+      const d = scenDef();
+      const dq = runs.dqn && runs.dqn.policyId ? ` DQN policy: <b>${runs.dqn.policyId}</b> (frozen, runs as C++ inside ns-3).` : '';
+      const best = curSet.kind === 'best' ? ` <span class="srctag agg">selected best case: ${curSet.name}</span>` : '';
+      document.getElementById("scenCaption").innerHTML = `<b>${d.title}</b> &mdash; ${d.caption}${dq}${best}`;
+      document.getElementById("sbsTag").className = "srctag " + (source === 'live' ? 'live' : 'rec');
+      document.getElementById("sbsTag").innerText = source === 'live' ? 'LIVE ns-3' : 'Recorded ns-3 run';
+    }
+
+    async function pollLive() {
+      try {
+        const r = await fetch(`/api/frames?since=${livePollSeq}`);
+        const j = await r.json();
+        if (!j.live) { setBadge('live', 'Live — server not started with --live'); return; }
+        if (j.next < livePollSeq) { runs = {}; }
+        livePollSeq = j.next;
+        j.frames.forEach(pushLive);
+        const n = Object.keys(runs).length;
+        if (n > 1 && !sideBySideMode) setSideBySide(true);
+        setBadge('live', n ? `LIVE — ns-3 real-time (${n} scheduler${n > 1 ? 's' : ''})` : 'LIVE — waiting for ns-3…');
+        if (n) renderCaption();
+      } catch (e) { setBadge('live', 'Live — server unreachable'); }
+    }
+
+    async function loadSet(kind, name) {
+      curSet = { kind, name };
+      curScen = kind === 'best' ? name.split('_')[0] : name;
+      const sel = document.getElementById("scenarioSelect");
+      if (kind !== 'best') sel.value = name;
+      let j;
+      try { j = await (await fetch(`/api/set?kind=${kind}&name=${encodeURIComponent(name)}`)).json(); }
+      catch (e) { setBadge('replay', 'Recorded run — server unreachable'); return; }
+      runs = {};
+      if (j.error) {
+        setBadge('replay', 'No recording found');
+        document.getElementById("scenCaption").innerHTML = `<b>No recording for ${name}.</b> Run: <code>python3 ns3-sim/scripts/record_runs.py --scenarios --best-cases</code>`;
+        return;
+      }
+      for (const [fam, frames] of Object.entries(j.runs)) {
+        const st = freshStats();
+        runs[fam] = { frames: frames.map(f => normalizeFrame(f, st)), stats: st, policyId: frames[0] && frames[0].policy_id };
+      }
+      currentSlot = 0; lastSpawned = null; currentFrame = null; particles.length = 0;
       const run = activeRun();
+      if (run.length) {
+        const sc = document.getElementById("timeScrubber");
+        sc.min = run[0].t; sc.max = run[run.length - 1].t;
+      }
+      const policyOpt = document.getElementById("policySelect");
+      if (!runs[policyOpt.value]) policyOpt.value = runs.dqn ? 'dqn' : Object.keys(runs)[0];
+      setBadge('replay', `Recorded ns-3 run — ${name} (${run.length} slots)`);
+      renderCaption();
+      updateFrame();
+    }
+
+    async function setSource(s) {
+      source = s;
+      clearInterval(livePoller); livePoller = null;
+      runs = {}; livePollSeq = 0;
+      currentSlot = 0; lastSpawned = null; currentFrame = null; particles.length = 0;
+      const live = s === 'live';
+      document.getElementById("sourceSelect").value = s;
+      document.getElementById("scenarioSelect").style.display = live ? "none" : "inline-block";
+      document.getElementById("caseSelect").style.display = live ? "none" : "inline-block";
+      document.getElementById("policySelect").disabled = live;
+      const sc = document.getElementById("timeScrubber");
+      sc.disabled = live;
+      if (live) {
+        curScen = 'demo'; curSet = { kind: 'scenario', name: 'demo' };
+        sc.min = 0; sc.max = 120;
+        renderCaption();
+        livePoller = setInterval(pollLive, 100); pollLive();
+      } else {
+        try {
+          const j = await (await fetch('/api/sets')).json();
+          document.getElementById("caseSelect").innerHTML =
+            '<option value="">Best-case runs…</option>' + j.best_cases.map(c => `<option>${c}</option>`).join('');
+        } catch (e) {}
+        await loadSet('scenario', document.getElementById("scenarioSelect").value);
+      }
+      resetTimer();
+    }
+
+    // ------------------------------------------------------------------
+    // Per-frame update
+    // ------------------------------------------------------------------
+    function fmtT(t) { return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`; }
+
+    function updateFrame() {
+      const run = activeRun();
+      if (source === 'live' && run.length) currentSlot = run.length - 1;
       const frame = run[currentSlot];
       if (!frame) return;
       if (frame !== lastSpawned) { lastSpawned = frame; currentFrame = frame; spawnPackets(frame); }
 
-      // Update Ticker
       document.getElementById("tickerTime").innerText = `t = ${frame.t.toFixed(1)}s`;
-      if (source === 'synthetic' || scenarioOverlay) {
-        const activeEv = [...TIMELINE_EVENTS].reverse().find(ev => frame.t >= ev.t);
-        if (activeEv) document.getElementById("tickerEvent").innerText = activeEv.text;
-      } else {
-        document.getElementById("tickerEvent").innerText = `slot ${frame.slot} · policy ${frame.policyId || ''}`;
-      }
+      const activeEv = [...scenDef().events].reverse().find(ev => frame.t >= ev.t);
+      document.getElementById("tickerEvent").innerText = activeEv ? activeEv.text : `slot ${frame.slot}`;
 
-      // Update Time Display & Scrubber
-      const mins = Math.floor(frame.t / 60);
-      const secs = Math.floor(frame.t % 60);
-      document.getElementById("timeDisplay").innerText = 
-        `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')} / 02:00`;
+      const total = source === 'live' ? 120 : run[run.length - 1].t;
+      document.getElementById("timeDisplay").innerText = `${fmtT(frame.t)} / ${fmtT(total)}`;
       document.getElementById("timeScrubber").value = frame.t;
 
-      // Update KPIs
-      document.getElementById("kpiCwAoI").innerText = `${frame.cwAoI.toFixed(2)} s`;
+      document.getElementById("kpiCwAoI").innerText = `${frame.cwMean.toFixed(3)} s`;
       document.getElementById("kpiShieldCount").innerText = `${frame.shieldCount} (${frame.shieldPct.toFixed(1)}%)`;
       document.getElementById("kpiPdr").innerText = `${frame.pdr.toFixed(1)}%`;
       document.getElementById("kpiWasted").innerText = frame.wasted;
 
-      // Update Shield Alert
       const shieldEl = document.getElementById("shieldAlert");
       shieldEl.style.display = frame.shieldFired ? "inline" : "none";
 
-      // Update AoI Bars
       NODES.forEach((n, idx) => {
         const val = frame.aois[idx];
         document.getElementById(`aoiVal_${n.id}`).innerText = `${val.toFixed(2)} s`;
@@ -712,155 +795,198 @@
         fill.style.backgroundColor = (val >= n.ceilingS) ? "#dc2626" : n.color;
       });
 
-      // Render Visualizations
       renderSawtooth(run, currentSlot);
+      if (sideBySideMode) updateSbs();
 
-      // Side-by-Side Sync Update
-      if (sideBySideMode) {
-        ['rr', 'cag', 'dqn'].forEach(pol => {
-          const f = simulationRuns[pol][currentSlot];
-          if (!f) return;
-          document.getElementById(`sbsCwAoI_${pol}`).innerText = `${f.cwAoI.toFixed(2)} s`;
-          document.getElementById(`sbsPdr_${pol}`).innerText = `${f.pdr.toFixed(1)}%`;
-          if (pol === 'dqn') {
-            document.getElementById(`sbsShield_dqn`).innerText = `${f.shieldCount}`;
-          } else {
-            document.getElementById(`sbsWasted_${pol}`).innerText = `${f.wasted}`;
-          }
+      if (source !== 'live' && isPlaying) currentSlot = (currentSlot + 1) % Math.max(1, run.length);
+    }
 
-          NODES.forEach((n, idx) => {
-            const v = f.aois[idx];
-            document.getElementById(`sbsVal_${pol}_${n.id}`).innerText = `${v.toFixed(2)}s`;
-            const p = Math.min(100, (v / n.ceilingS) * 100);
-            document.getElementById(`sbsFill_${pol}_${n.id}`).style.width = `${p}%`;
-          });
+    // ------------------------------------------------------------------
+    // Side-by-side: one column per scheduler, each fed by its own ns-3 run
+    // ------------------------------------------------------------------
+    (function buildSbs() {
+      const grid = document.getElementById("sbsGrid");
+      FAMILIES.forEach(fam => {
+        const col = document.createElement("div");
+        col.className = "policy-column" + (fam === 'dqn' ? " active" : "");
+        col.innerHTML = `
+          <div class="policy-title"><span id="sbsTitle_${fam}" style="color:${FAM_COLOR[fam]};">${FAM_LABEL[fam]}</span>
+            <span id="sbsCw_${fam}" style="color:${FAM_COLOR[fam]};">—</span></div>
+          <div id="sbsDelta_${fam}" style="font-size:0.78rem; margin-bottom:2px;">&nbsp;</div>
+          <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;" id="sbsStat_${fam}">no run</div>
+          <div id="sbsBars_${fam}"></div>`;
+        grid.appendChild(col);
+        const bars = col.querySelector(`#sbsBars_${fam}`);
+        NODES.forEach(n => {
+          const mini = document.createElement("div");
+          mini.style.marginBottom = "6px";
+          mini.innerHTML = `
+            <div style="display:flex; justify-content:space-between; font-size:0.75rem;"><span>${n.name}</span><span id="sbsVal_${fam}_${n.id}">0.00s</span></div>
+            <div style="width:100%; height:6px; background:#090d16; border-radius:3px; overflow:hidden;">
+              <div id="sbsFill_${fam}_${n.id}" style="height:100%; width:0%; background:${n.color};"></div></div>`;
+          bars.appendChild(mini);
         });
-      }
+      });
+    })();
 
-      // Advance Slot
-      if (source === 'live') {
-        currentSlot = Math.max(0, extRun.length - 1);
-      } else if (isPlaying) {
-        currentSlot = (currentSlot + 1) % Math.max(1, run.length);
+    function idxFor(r) { return source === 'live' ? r.frames.length - 1 : Math.min(currentSlot, r.frames.length - 1); }
+
+    function updateSbs() {
+      const dq = runs.dqn && runs.dqn.frames[idxFor(runs.dqn)];
+      FAMILIES.forEach(fam => {
+        const r = runs[fam];
+        const f = r && r.frames[idxFor(r)];
+        const set = (id, html) => { document.getElementById(id).innerHTML = html; };
+        if (!f) { set(`sbsCw_${fam}`, '—'); set(`sbsStat_${fam}`, source === 'live' ? 'not running' : 'not recorded for this case'); set(`sbsDelta_${fam}`, '&nbsp;'); return; }
+        set(`sbsCw_${fam}`, `${f.cwMean.toFixed(3)} s`);
+        set(`sbsStat_${fam}`, `avg cw-AoI so far &middot; PDR ${f.pdr.toFixed(1)}% &middot; wasted ${f.wasted}` + (fam === 'dqn' ? ` &middot; shields ${f.shieldCount}` : ''));
+        if (fam === 'dqn') {
+          set(`sbsTitle_dqn`, `DQN + Shield${r.policyId ? ' (' + r.policyId + ')' : ''}`);
+          set(`sbsDelta_dqn`, '<span class="tie">proposed policy</span>');
+        } else if (dq) {
+          const d = (dq.cwMean - f.cwMean) / f.cwMean * 100;
+          const cls = d < -1 ? 'win' : d > 1 ? 'loss' : 'tie';
+          set(`sbsDelta_${fam}`, `<span class="${cls}">DQN ${d <= 0 ? '' : '+'}${d.toFixed(1)}% vs this</span>`);
+        }
+        NODES.forEach((n, i) => {
+          document.getElementById(`sbsVal_${fam}_${n.id}`).innerText = `${f.aois[i].toFixed(2)}s`;
+          document.getElementById(`sbsFill_${fam}_${n.id}`).style.width = `${Math.min(100, f.aois[i] / n.ceilingS * 100)}%`;
+        });
+      });
+      drawCwChart();
+    }
+
+    function maOf(r) {   // 30 s (300-slot) moving average of per-slot cw-AoI, extended incrementally
+      if (!r.pre) { r.pre = [0]; r.ma = []; }
+      for (let i = r.ma.length; i < r.frames.length; i++) {
+        r.pre.push(r.pre[i] + r.frames[i].cwAoI);
+        const lo = Math.max(0, i - 299);
+        r.ma.push((r.pre[i + 1] - r.pre[lo]) / (i + 1 - lo));
       }
+      return r.ma;
+    }
+
+    function drawCwChart() {
+      const cv = document.getElementById("cwChart"), ctx = cv.getContext("2d");
+      const W = cv.width, H = cv.height, padL = 38, padB = 16;
+      ctx.clearRect(0, 0, W, H);
+      const present = FAMILIES.filter(f => runs[f] && runs[f].frames.length);
+      if (!present.length) return;
+      const tEnd = source === 'live' ? 120 : runs[present[0]].frames[runs[present[0]].frames.length - 1].t;
+      let yMax = 0.3;
+      present.forEach(f => { const ma = maOf(runs[f]); const hi = idxFor(runs[f]); for (let i = 0; i <= hi; i++) yMax = Math.max(yMax, ma[i] * 1.15); });
+      const X = t => padL + (t / tEnd) * (W - padL - 6), Y = v => (H - padB) - (v / yMax) * (H - padB - 6);
+      ctx.strokeStyle = "#1e293b"; ctx.fillStyle = "#94a3b8"; ctx.font = "9px sans-serif"; ctx.textAlign = "right"; ctx.lineWidth = 1;
+      for (let k = 0; k <= 4; k++) { const v = yMax * k / 4, y = Y(v); ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W, y); ctx.stroke(); ctx.fillText(v.toFixed(2), padL - 4, y + 3); }
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = "#475569"; ctx.textAlign = "left";
+      scenDef().events.filter(e => e.t > 0 && e.t < tEnd).forEach(e => { ctx.beginPath(); ctx.moveTo(X(e.t), 4); ctx.lineTo(X(e.t), H - padB); ctx.stroke(); ctx.fillText(fmtT(e.t), X(e.t) + 2, H - 4); });
+      ctx.setLineDash([]);
+      present.forEach(f => {
+        const r = runs[f], ma = maOf(r), hi = idxFor(r);
+        ctx.strokeStyle = FAM_COLOR[f]; ctx.lineWidth = f === 'dqn' ? 2.4 : 1.4; ctx.beginPath();
+        for (let i = 0; i <= hi; i++) { const x = X(r.frames[i].t), y = Y(ma[i]); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+        ctx.stroke();
+      });
+      ctx.textAlign = "left"; let lx = padL + 8;
+      present.forEach(f => { ctx.fillStyle = FAM_COLOR[f]; ctx.fillRect(lx, 6, 10, 3); ctx.fillText(f === 'dqn' ? 'DQN' : FAM_LABEL[f], lx + 14, 11); lx += 130; });
+    }
+
+    function setSideBySide(on) {
+      sideBySideMode = on;
+      document.getElementById("sideBySideContainer").style.display = on ? "block" : "none";
+      document.getElementById("btnToggleSideBySide").classList.toggle("secondary", !on);
+      if (on) updateSbs();
     }
 
     // ------------------------------------------------------------------
-    // Data sources: synthetic (in-browser), live ns-3 (UDP via server), replay (CSV via server)
+    // Evidence view: the measured 1000-run campaign (read from best_cases.json via /api/summary)
     // ------------------------------------------------------------------
-    let source = 'synthetic';
-    let extRun = [];
-    let extStats = null;
-    let liveQueue = [];
-    let livePollSeq = 0;
-    let livePoller = null;
-    let scenarioOverlay = false;   // draw interferer / walk / fault from the demo.json timeline
-    let currentFrame = null;
-    let lastSpawned = null;
+    const POL_ORDER = ['dqn', 'maxweight', 'cag', 'rr', 'random', 'fpq'];
+    const POL_NAME = { dqn: 'DQN (+shield)', maxweight: 'Max-Weight', cag: 'Channel-Aware Greedy', rr: 'Round Robin', random: 'Random', fpq: 'Fixed Priority' };
+    const SCEN_NAME = { S0: 'S0 Nominal', S1: 'S1 Weak links', S2: 'S2 Interferer', S3: 'S3 Mobility', S4: 'S4 Node fault' };
+    let evidenceLoaded = false;
 
-    function activeRun() {
-      return source === 'synthetic'
-        ? simulationRuns[document.getElementById("policySelect").value]
-        : extRun;
+    const relCell = v => { const c = v < -1 ? 'win' : v > 1 ? 'loss' : 'tie'; return `<td class="${c}">${v > 0 ? '+' : ''}${v.toFixed(1)}%</td>`; };
+
+    async function renderEvidence() {
+      const el = document.getElementById("evidencePanel");
+      let d;
+      try { d = await (await fetch('/api/summary')).json(); } catch (e) { el.innerHTML = '<p>Server unreachable.</p>'; return; }
+      if (d.error) { el.innerHTML = `<p>No campaign summary: <code>${d.error}</code></p>`; return; }
+      evidenceLoaded = true;
+      let h = `<h3>Measured campaign: 1000 ns-3 runs <span class="srctag agg">Campaign aggregate</span></h3>
+        <div class="note">${d.provenance} Bars are mean criticality-weighted AoI (lower is better); white whisker = 95% bootstrap CI.</div><div class="ev-grid">`;
+      ['S0', 'S1', 'S2', 'S3', 'S4'].forEach(sc => {
+        const rows = d.by_scenario.filter(r => r.scenario === sc);
+        const core = rows.filter(r => !['random', 'fpq'].includes(r.policy)).map(r => r.ci_hi);
+        const mx = Math.max(...core) * 1.15;
+        h += `<div class="card"><div class="card-header"><span>${SCEN_NAME[sc]}</span></div>`;
+        POL_ORDER.forEach(p => {
+          const r = rows.find(x => x.policy === p); if (!r) return;
+          const w = Math.min(100, r.cw_aoi / mx * 100), clip = r.cw_aoi > mx;
+          h += `<div class="hbar"><span class="nm" style="${p === 'dqn' ? 'color:#38bdf8;font-weight:700' : ''}">${POL_NAME[p]}</span>
+            <span class="tr"><span class="fl" style="width:${w}%;background:${FAM_COLOR[p] || '#64748b'}"></span>
+            ${clip ? '' : `<span class="ci" style="left:${r.ci_lo / mx * 100}%;width:${Math.max(0.5, (r.ci_hi - r.ci_lo) / mx * 100)}%"></span>`}</span>
+            <span class="vl">${r.cw_aoi.toFixed(3)}${clip ? ' ▸' : ''}</span></div>`;
+        });
+        h += `</div>`;
+      });
+      h += `</div>`;
+
+      h += `<h3>DQN vs each baseline (paired by eval seed, 20 pairs) <span class="srctag agg">Campaign aggregate</span></h3>
+        <div class="note">Relative change in cw-AoI. Negative/green = DQN lower (better). Within ±1% shown as a tie. Holm-corrected p-values are in the CSVs; with near-deterministic runs read the size, not the p.</div>
+        <table class="ev-table"><tr><th>scenario</th>${['rr', 'random', 'fpq', 'maxweight', 'cag'].map(b => `<th>vs ${POL_NAME[b]}</th>`).join('')}</tr>`;
+      Object.keys(SCEN_NAME).forEach(sc => {
+        h += `<tr><td>${SCEN_NAME[sc]}</td>` + ['rr', 'random', 'fpq', 'maxweight', 'cag'].map(b => {
+          const r = d.paired.find(x => x.scenario === sc && x.baseline === b); return r ? relCell(r.rel_diff_pct) : '<td>—</td>'; }).join('') + `</tr>`;
+      });
+      h += `</table>`;
+
+      const ws = d.win_stats_vs_best_heuristic;
+      h += `<h3>Where DQN is strongest <span class="srctag agg">Campaign aggregate</span></h3>
+        <div class="note">DQN clearly beats Round Robin, Random and Fixed Priority in S0-S3. Against Max-Weight and CAG it is on average ${ws.mean_rel_pct > 0 ? 'worse' : 'better'} by ${Math.abs(ws.mean_rel_pct).toFixed(1)}%
+        (beats the better of the two in ${ws.n_wins}/${ws.n_runs} single runs; ${ws.n_wins_over_3pct} by more than 3%). Its safety advantage shows in worst-case urgent AoI:</div>
+        <table class="ev-table"><tr><th>worst urgent-node AoI (s), mean of 20 seeds</th>${['dqn', 'maxweight', 'cag', 'rr'].map(p => `<th>${POL_NAME[p]}</th>`).join('')}</tr>`;
+      ['S1', 'S2', 'S3'].forEach(sc => {
+        const g = p => d.tail_safety.find(x => x.scenario === sc && x.family === p).urgent_max;
+        const best = Math.min(g('dqn'), g('maxweight'), g('cag'));
+        h += `<tr><td>${SCEN_NAME[sc]}</td>` + ['dqn', 'maxweight', 'cag', 'rr'].map(p =>
+          `<td class="${g(p) === best && p !== 'rr' ? 'win' : ''}">${g(p).toFixed(2)}</td>`).join('') + `</tr>`;
+      });
+      h += `</table>`;
+
+      h += `<h3>DQN training seeds (mean cw-AoI) <span class="srctag agg">Campaign aggregate</span></h3>
+        <div class="note">Seed quality varies. The live demo uses one seed, chosen after seeing these results (disclosed); seeds 0 and 4 are about 10% worse than Max-Weight.</div>
+        <table class="ev-table"><tr><th>scenario</th>${[0, 1, 2, 3, 4].map(s => `<th>seed ${s}</th>`).join('')}</tr>` +
+        d.seed_spread.map(r => { const vals = [0, 1, 2, 3, 4].map(s => r[s]); const mn = Math.min(...vals);
+          return `<tr><td>${SCEN_NAME[r.scenario]}</td>` + vals.map(v => `<td class="${v === mn ? 'win' : ''}">${v.toFixed(3)}</td>`).join('') + `</tr>`; }).join('') + `</table>`;
+
+      h += `<h3>Best observed single runs <span class="srctag rec">selected cases</span></h3>
+        <div class="note"><b>Selected as the best ${d.selected_cases.length} of ${ws.n_runs} DQN runs; not representative of the average (see tables above).</b> Each replays the same seed for DQN, Max-Weight/CAG and Round Robin in ns-3.</div>`;
+      d.selected_cases.forEach(c => {
+        h += `<div class="case-row"><span><b>${c.id}</b> &mdash; DQN ${c.dqn_cw_aoi} vs ${POL_NAME[c.best_heuristic]} ${c.heuristic_cw_aoi}
+          <span class="win">${c.rel_pct.toFixed(1)}%</span></span><button class="secondary" onclick="replayCase('${c.id}')">Replay this run</button></div>`;
+      });
+      el.innerHTML = h;
     }
 
-    function sta4DistanceAt(t) {   // mirrors the ns-3 waypoint model (1 m/s out to 45 m, back at t=80 s)
-      if (t < 45) return 18.0;
-      if (t < 72) return 18.0 + (t - 45);
-      if (t < 80) return 45.0;
-      if (t < 107) return 45.0 - (t - 80);
-      return 18.0;
+    async function toggleEvidence() {
+      const el = document.getElementById("evidencePanel");
+      const show = el.style.display !== 'block';
+      el.style.display = show ? 'block' : 'none';
+      document.getElementById("liveView").style.display = show ? 'none' : 'block';
+      document.getElementById("btnEvidence").classList.toggle("secondary", !show);
+      if (show && !evidenceLoaded) await renderEvidence();
     }
 
-    function normalizeFrame(raw) {
-      const st = extStats;
-      const t = raw.timestamp;
-      const success = raw.delivered >= 0 && raw.delivered === raw.granted;
-      st.total++;
-      if (success) st.ok++; else st.wasted++;
-      if (raw.shield) st.shield++;
-      const lv = raw.liveness;
-      const cw = raw.aoi.reduce((acc, a, i) => acc + a * NODES[i].weight, 0.0) / 4.0;
-      return {
-        slot: raw.slot_id, t, granted: raw.granted, shieldFired: !!raw.shield, success,
-        aois: raw.aoi, rssi: raw.rssi, cwAoI: cw, policyId: raw.policy_id,
-        deliveredMs: (raw.delivered_age_us || 0) / 1000,
-        pdr: st.ok / st.total * 100, shieldCount: st.shield, shieldPct: st.shield / st.total * 100,
-        wasted: st.wasted,
-        interfererOn: scenarioOverlay && t >= 20 && t < 45,
-        sta4Distance: scenarioOverlay ? sta4DistanceAt(t) : 18.0,
-        sta2Dead: (scenarioOverlay && t >= 70 && t < 100) || (!!lv && lv[1] === 2)
-      };
+    async function replayCase(id) {
+      if (document.getElementById("evidencePanel").style.display === 'block') await toggleEvidence();
+      if (source !== 'replay') await setSource('replay');
+      const cs = document.getElementById("caseSelect");
+      cs.value = id;
+      await loadSet('best', id);
+      setSideBySide(true);
     }
-
-    function drainLiveQueue() {
-      // Show one frame per tick (100 ms = one slot); catch up faster if we fall behind.
-      let n = liveQueue.length > 20 ? 5 : (liveQueue.length > 5 ? 2 : 1);
-      while (n-- > 0 && liveQueue.length) extRun.push(normalizeFrame(liveQueue.shift()));
-      if (extRun.length) currentSlot = extRun.length - 1;
-    }
-
-    async function pollLive() {
-      try {
-        const r = await fetch(`/api/frames?since=${livePollSeq}`);
-        const j = await r.json();
-        if (!j.live) { setBadge('live', 'Live — server not started with --live'); return; }
-        if (j.next < livePollSeq) { livePollSeq = 0; extRun = []; liveQueue = []; extStats = freshStats(); }
-        livePollSeq = j.next;
-        j.frames.forEach(f => liveQueue.push(f));
-        setBadge('live', extRun.length || liveQueue.length ? 'LIVE — ns-3 (real-time)' : 'LIVE — waiting for ns-3…');
-      } catch (e) { setBadge('live', 'Live — server unreachable'); }
-    }
-
-    function freshStats() { return { total: 0, ok: 0, wasted: 0, shield: 0 }; }
-
-    function setBadge(kind, text) {
-      const b = document.getElementById("statusBadge");
-      b.className = "badge " + (kind === 'live' ? "badge-live" : "badge-replay");
-      document.getElementById("badgeText").innerText = text;
-    }
-
-    async function loadReplay(name) {
-      const r = await fetch(`/api/replay?file=${encodeURIComponent(name)}`);
-      const j = await r.json();
-      scenarioOverlay = /demo|live_log/.test(name);
-      extStats = freshStats();
-      extRun = (j.frames || []).map(normalizeFrame);
-      currentSlot = 0; lastSpawned = null; particles.length = 0;
-      if (extRun.length) {
-        const sc = document.getElementById("timeScrubber");
-        sc.min = extRun[0].t; sc.max = extRun[extRun.length - 1].t;
-      }
-      setBadge('replay', `Replay — ${name} (${extRun.length} slots)`);
-    }
-
-    async function setSource(s) {
-      source = s;
-      clearInterval(livePoller); livePoller = null;
-      extRun = []; liveQueue = []; livePollSeq = 0; extStats = freshStats();
-      currentSlot = 0; lastSpawned = null; currentFrame = null; particles.length = 0;
-      const sel = document.getElementById("replayFile");
-      sel.style.display = (s === 'replay') ? "inline-block" : "none";
-      document.getElementById("policySelect").disabled = (s !== 'synthetic');
-      const sc = document.getElementById("timeScrubber");
-      sc.disabled = (s === 'live'); sc.min = 0; sc.max = 120;
-      scenarioOverlay = (s === 'live');
-      if (s === 'synthetic') {
-        setBadge('replay', 'Synthetic Demo');
-      } else if (s === 'live') {
-        livePoller = setInterval(pollLive, 100); pollLive();
-      } else {
-        try {
-          const r = await fetch('/api/replays'); const j = await r.json();
-          sel.innerHTML = j.files.map(f => `<option>${f}</option>`).join('');
-          if (j.files.length) await loadReplay(j.files[0]); else setBadge('replay', 'Replay — no CSVs found');
-        } catch (e) { setBadge('replay', 'Replay — server unreachable'); }
-      }
-      resetTimer();
-    }
-
-    document.getElementById("sourceSelect").addEventListener("change", e => setSource(e.target.value));
-    document.getElementById("replayFile").addEventListener("change", e => loadReplay(e.target.value));
 
     // ------------------------------------------------------------------
     // Packet animation: GRANT (AP -> STA) then DATA reply (STA -> AP), or loss / timeout
@@ -967,24 +1093,26 @@
     document.getElementById("timeScrubber").addEventListener("input", (e) => {
       const v = parseFloat(e.target.value);
       const run = activeRun();
-      if (source === 'synthetic' || !run.length) currentSlot = Math.floor(v / 0.1);
-      else currentSlot = Math.min(run.length - 1, Math.max(0, Math.round((v - run[0].t) / 0.1)));
+      if (!run.length) return;
+      currentSlot = Math.min(run.length - 1, Math.max(0, Math.round((v - run[0].t) / 0.1)));
       updateFrame();
     });
 
-    (function () {
-      const want = new URLSearchParams(location.search).get("source");
-      if (want === 'live' || want === 'replay') {
-        document.getElementById("sourceSelect").value = want;
-        setSource(want);
-      }
-    })();
+    document.getElementById("sourceSelect").addEventListener("change", e => setSource(e.target.value));
+    document.getElementById("scenarioSelect").addEventListener("change", e => { document.getElementById("caseSelect").value = ""; loadSet('scenario', e.target.value); });
+    document.getElementById("caseSelect").addEventListener("change", e => { if (e.target.value) { loadSet('best', e.target.value); setSideBySide(true); } });
+    document.getElementById("policySelect").addEventListener("change", () => { currentSlot = Math.min(currentSlot, Math.max(0, activeRun().length - 1)); lastSpawned = null; updateFrame(); });
+    document.getElementById("btnToggleSideBySide").addEventListener("click", () => setSideBySide(!sideBySideMode));
+    document.getElementById("btnEvidence").addEventListener("click", toggleEvidence);
 
-    document.getElementById("btnToggleSideBySide").addEventListener("click", () => {
-      sideBySideMode = !sideBySideMode;
-      document.getElementById("sideBySideContainer").style.display = sideBySideMode ? "block" : "none";
-      document.getElementById("btnToggleSideBySide").classList.toggle("secondary");
-    });
+    (function () {
+      const qs = new URLSearchParams(location.search);
+      if (qs.get("compare") === "1") setSideBySide(true);
+      const sc = qs.get("scenario");
+      if (sc && SCEN[sc]) document.getElementById("scenarioSelect").value = sc;
+      setSource(qs.get("source") === 'live' ? 'live' : 'replay');
+      if (qs.get("view") === "evidence") toggleEvidence();
+    })();
   </script>
 </body>
 </html>

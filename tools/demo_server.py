@@ -13,6 +13,7 @@ import csv
 import http.server
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import socketserver
@@ -25,6 +26,11 @@ import webbrowser
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "dashboard" / "static"
 SCENARIO_PATH = Path(__file__).resolve().parent.parent / "ns3-sim" / "scenarios" / "demo.json"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SCENARIO_RUNS = PROJECT_ROOT / "ns3-sim" / "results" / "scenarios"    # <S>/<policy>.csv (record_runs.py --scenarios)
+BEST_CASE_RUNS = PROJECT_ROOT / "ns3-sim" / "results" / "best_cases"  # <id>/<policy>.csv (record_runs.py --best-cases)
+SUMMARY_JSON = PROJECT_ROOT / "results" / "ns3_campaign" / "summary" / "best_cases.json"
+SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 class LiveTelemetryListener(threading.Thread):
@@ -36,7 +42,7 @@ class LiveTelemetryListener(threading.Thread):
         self.latest_frame = None
         self.running = True
         self.seq = 0
-        self.frames = collections.deque(maxlen=2000)  # (seq, frame)
+        self.frames = collections.deque(maxlen=8000)  # (seq, frame); room for 3 parallel runs x 2000 slots
         self.lock = threading.Lock()
 
     def frames_since(self, since: int):
@@ -86,7 +92,34 @@ class DemoHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def _run_set(self, base: Path, name: str):
+        """All recorded policies of one scenario / best case: {policy: [frames]}."""
+        if not SAFE_NAME.match(name or ""):
+            return None
+        d = base / name
+        if not d.is_dir():
+            return None
+        return {p.stem: load_replay_csv(p) for p in sorted(d.glob("*.csv"))}
+
     def do_GET(self):
+        route = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(route.query)
+        if route.path == "/api/sets":
+            sc = sorted(p.name for p in SCENARIO_RUNS.iterdir() if p.is_dir()) if SCENARIO_RUNS.is_dir() else []
+            bc = sorted(p.name for p in BEST_CASE_RUNS.iterdir() if p.is_dir()) if BEST_CASE_RUNS.is_dir() else []
+            return self._json({"scenarios": sc, "best_cases": bc})
+        if route.path == "/api/set":
+            kind = q.get("kind", ["scenario"])[0]
+            base = BEST_CASE_RUNS if kind == "best" else SCENARIO_RUNS
+            runs = self._run_set(base, q.get("name", [""])[0])
+            if runs is None:
+                return self._json({"error": "not recorded - run: python3 ns3-sim/scripts/record_runs.py --scenarios --best-cases"}, 404)
+            return self._json({"runs": runs})
+        if route.path == "/api/summary":
+            if not SUMMARY_JSON.exists():
+                return self._json({"error": "run: python3 ns3-sim/analysis/find_best_cases.py"}, 404)
+            return self._json(json.loads(SUMMARY_JSON.read_text(encoding="utf-8")))
+
         if self.path == "/" or self.path == "/index.html":
             self.path = "/index.html"
             return super().do_GET()
@@ -163,6 +196,7 @@ def load_replay_csv(path: Path):
                     "granted": int(row["action_granted_node"]),
                     "shield": int(row["shield_fired"]),
                     "delivered": int(row["delivered_node"]),
+                    "delivered_age_us": float(row.get("delivered_age_us") or 0),
                     "aoi": [float(row[f"aoi_n{i}"]) for i in range(1, 5)],
                     "rssi": [float(row[f"rssi_n{i}"]) for i in range(1, 5)],
                 })
@@ -172,7 +206,7 @@ def load_replay_csv(path: Path):
 
 
 def run_server(port: int = 8000, replay_dir: str = "results", live: bool = False,
-               open_browser: bool = False, udp_port: int = 9999):
+               open_browser: bool = False, udp_port: int = 9999, open_query: str = ""):
     listener = None
     if live:
         listener = LiveTelemetryListener(port=udp_port)
@@ -186,7 +220,7 @@ def run_server(port: int = 8000, replay_dir: str = "results", live: bool = False
     server.replay_dir = replay_dir
 
     url = f"http://localhost:{port}/"
-    open_url = url + ("?source=live" if live else "")
+    open_url = url + (open_query or ("?source=live" if live else ""))
     print(f"\n========================================================")
     print(f"  AoI DRL Scheduler Evaluation Dashboard Server")
     print(f"  Running at: {url}")
@@ -214,11 +248,12 @@ def main():
     parser.add_argument("--replay", default="results", help="Directory of recorded CSV runs")
     parser.add_argument("--udp-port", type=int, default=9999, help="UDP port for live ns-3 telemetry")
     parser.add_argument("--live", action="store_true", help="Enable UDP listener for live ns-3 datagrams")
+    parser.add_argument("--open-query", default="", help="query string for the browser URL, e.g. '?source=live&compare=1'")
     parser.add_argument("--open-browser", action="store_true", help="Open browser on startup")
     args = parser.parse_args()
 
     run_server(port=args.port, replay_dir=args.replay, live=args.live,
-               open_browser=args.open_browser, udp_port=args.udp_port)
+               open_browser=args.open_browser, udp_port=args.udp_port, open_query=args.open_query)
 
 
 if __name__ == "__main__":

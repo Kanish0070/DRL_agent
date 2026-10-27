@@ -42,20 +42,20 @@ pre-commit install
 
 ## Running the Live Demo & NS-3 Evaluation
 
-### Interactive Web Dashboard (Offline / Replay Mode)
-The project includes an interactive web dashboard showing the star topology, live AoI bars, rolling sawtooth graphs, and side-by-side policy comparisons:
+The DQN runs **inside ns-3 as a C++ forward pass** (`ns3-sim/dqn-policy.h`), not through gym or Python.
+The dashboard shows ns-3 data only: live UDP telemetry, or recorded ns-3 runs.
+See [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md) for the panel script.
 
 ```bash
-# Start the demo telemetry server and launch dashboard in browser
-python -m tools.demo_server --open-browser
+bash tools/rehearse.sh                    # once (~15 s): record S0-S4 + best-case runs, build the Evidence data
+bash tools/run_live_demo.sh --compare     # LIVE: RR | Max-Weight | CAG | DQN as real-time ns-3 runs (120 s)
+python3 tools/demo_server.py --open-browser --live   # fallback: replay recordings, no ns-3 needed (works offline)
 ```
 
-### Realtime NS-3 Live Demo
-To launch the real-time NS-3 simulation streaming live telemetry to the web dashboard:
-
-```bash
-bash tools/run_live_demo.sh
-```
+Dashboard: pick a **Scenario** (S0-S4 or the 120 s demo timeline) to see its network effects (jammer, walking node,
+dead node, link quality rings); **Side-by-Side** compares the four schedulers on the same run; **Evidence** shows the
+1000-run campaign and the best-case runs (labelled as selected). Needs a built ns-3 (set `NS3_DIR` if it is not found).
+Single scheduler live: `bash tools/run_live_demo.sh 8000 9999 1 dqn` (port, UDP port, DQN seed, scheduler).
 
 ### NS-3 Evaluation Campaign (Scenarios S0–S4)
 To execute the full evaluation matrix across all policies (RR, FPQ, Max-Weight, CAG, Random, DQN) and seeds:
