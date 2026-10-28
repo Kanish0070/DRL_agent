@@ -11,12 +11,12 @@ set -euo pipefail
 
 NS3_VERSION="3.41"
 NS3_HOME="${NS3_HOME:-$HOME/ns3}"
-NS3_DIR="${NS3_HOME}/ns-allinone-${NS3_VERSION}/ns-${NS3_VERSION}"
+NS3_DIR="${NS3_DIR:-${NS3_HOME}/ns-allinone-${NS3_VERSION}/ns-${NS3_VERSION}}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RESULTS_DIR="${PROJECT_ROOT}/ns3-sim/results"
 
 SCHEDULERS=("rr" "fpq" "maxweight" "cag" "random")
-SEEDS=(0 1 2 3 4)
+SEEDS=(1 2 3 4 5)  # NS-3's RngSeedManager rejects seed 0
 SIM_TIME=300
 SLOT_DURATION=0.1
 
@@ -45,9 +45,9 @@ for sched in "${SCHEDULERS[@]}"; do
 done
 
 # One more short run with NetAnim enabled, for the topology animation demo.
-echo "[RUN] NetAnim topology capture (cag, seed=0, 30s)..."
+echo "[RUN] NetAnim topology capture (cag, seed=1, 30s)..."
 (cd "${NS3_DIR}" && ./ns3 run "scratch/aoi-scheduler/aoi-scheduler-sim \
-    --scheduler=cag --seed=0 --simTime=30 \
+    --scheduler=cag --seed=1 --simTime=30 \
     --enableNetAnim=true \
     --csvOutput=${RESULTS_DIR}/cag_netanim.csv")
 
@@ -59,10 +59,10 @@ echo "========================================"
 cd "${PROJECT_ROOT}"
 python3 ns3-sim/analysis/plot_scheduler_comparison.py "${RESULTS_DIR}"
 for sched in "${SCHEDULERS[@]}"; do
-    python3 ns3-sim/analysis/plot_aoi_sawtooth.py "${RESULTS_DIR}/${sched}_seed0.csv"
+    python3 ns3-sim/analysis/plot_aoi_sawtooth.py "${RESULTS_DIR}/${sched}_seed1.csv"
 done
 python3 ns3-sim/analysis/generate_flowmon_plots.py "${RESULTS_DIR}/flowmon-results.xml"
-python3 ns3-sim/analysis/validate_against_contracts.py "${RESULTS_DIR}/rr_seed0.csv"
+python3 ns3-sim/analysis/validate_against_contracts.py "${RESULTS_DIR}/rr_seed1.csv"
 
 echo ""
 echo "========================================"

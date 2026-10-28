@@ -1,0 +1,20 @@
+# id	flags (added to: --slotDuration=0.1 --simTime=300)
+G01	--txPower=20 --distanceScale=1
+G02	--txPower=20 --distanceScale=3
+G03	--txPower=20 --distanceScale=6
+G04	--txPower=20 --distanceScale=8
+G05	--txPower=10 --distanceScale=1
+G06	--txPower=10 --distanceScale=3
+G07	--txPower=10 --distanceScale=6
+G08	--txPower=10 --distanceScale=8
+G09	--txPower=0 --distanceScale=1
+G10	--txPower=0 --distanceScale=3
+G11	--txPower=0 --distanceScale=6
+G12	--txPower=-5 --distanceScale=1
+G13	--txPower=-8 --distanceScale=1
+G14	--txPower=-5 --distanceScale=1 --r50=-78
+G15	--txPower=-5 --distanceScale=1 --r50=-86
+G16	--txPower=-5 --distanceScale=1 --pathLossExp=2.2
+G17	--txPower=-5 --distanceScale=1 --pathLossExp=3.4
+G18	--txPower=-7 --distanceScale=1
+G19	--txPower=5 --distanceScale=1 --mobileNode=3 --mobileSpeed=1.0

@@ -1,0 +1,6 @@
+scenario,kendall_tau,p_value,n_policies,python_order,ns3_order
+S0,0.733333,0.0555556,6,maxweight < dqn < cag < rr < random < fpq,cag < maxweight < dqn < rr < random < fpq
+S1,1,0.00277778,6,maxweight < dqn < cag < rr < random < fpq,maxweight < dqn < cag < rr < random < fpq
+S2,0.866667,0.0166667,6,maxweight < dqn < cag < rr < random < fpq,maxweight < cag < dqn < rr < random < fpq
+S3,0.866667,0.0166667,6,maxweight < dqn < cag < rr < random < fpq,maxweight < cag < dqn < rr < random < fpq
+S4,0.466667,0.272222,6,maxweight < dqn < cag < rr < random < fpq,rr < maxweight < cag < dqn < random < fpq

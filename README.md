@@ -42,20 +42,24 @@ pre-commit install
 
 ## Running the Live Demo & NS-3 Evaluation
 
-### Interactive Web Dashboard (Offline / Replay Mode)
-The project includes an interactive web dashboard showing the star topology, live AoI bars, rolling sawtooth graphs, and side-by-side policy comparisons:
+The DQN runs **inside ns-3 as a C++ forward pass** (`ns3-sim/dqn-policy.h`), not through gym or Python.
+The dashboard shows ns-3 data only: live UDP telemetry, or recorded ns-3 runs.
+See [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md) for the panel script.
 
 ```bash
-# Start the demo telemetry server and launch dashboard in browser
-python -m tools.demo_server --open-browser
+bash tools/rehearse.sh                                # once (~15 s): record S0-S4 + best-case runs, build the Evidence data
+python3 tools/demo_server.py --open-browser --live    # start the dashboard; everything else is done with its buttons
 ```
 
-### Realtime NS-3 Live Demo
-To launch the real-time NS-3 simulation streaming live telemetry to the web dashboard:
+In the page, choose **Source: Live ns-3**, pick a scenario, a scheduler (all four, or one) and a DQN seed, then press
+**&#9654; Run live** (real time, 120 s). **Restart** re-runs it, **Stop** ends it, and you can change the scenario/scheduler/seed and
+run again at any time. The *Recorded ns-3 run* source replays saved runs instantly and works without ns-3.
+The terminal launcher `bash tools/run_live_demo.sh --compare` still works for a fixed one-shot run.
 
-```bash
-bash tools/run_live_demo.sh
-```
+Dashboard: pick a **Scenario** (S0-S4 or the 120 s demo timeline) to see its network effects (jammer, walking node,
+dead node, link quality rings); **Side-by-Side** compares the four schedulers on the same run; **Evidence** shows the
+1000-run campaign and the best-case runs (labelled as selected). Needs a built ns-3 (set `NS3_DIR` if it is not found).
+Single scheduler live: `bash tools/run_live_demo.sh 8000 9999 1 dqn` (port, UDP port, DQN seed, scheduler).
 
 ### NS-3 Evaluation Campaign (Scenarios S0–S4)
 To execute the full evaluation matrix across all policies (RR, FPQ, Max-Weight, CAG, Random, DQN) and seeds:

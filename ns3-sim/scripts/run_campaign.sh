@@ -7,9 +7,9 @@ set -euo pipefail
 
 NS3_VERSION="3.41"
 NS3_HOME="${NS3_HOME:-$HOME/ns3}"
-NS3_DIR="${NS3_HOME}/ns-allinone-${NS3_VERSION}/ns-${NS3_VERSION}"
+NS3_DIR="${NS3_DIR:-${NS3_HOME}/ns-allinone-${NS3_VERSION}/ns-${NS3_VERSION}}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RESULTS_ROOT="${PROJECT_ROOT}/ns3-sim/results"
+RESULTS_ROOT="${RESULTS_ROOT:-${PROJECT_ROOT}/results/ns3_campaign}"
 CONFIG_FILE="${PROJECT_ROOT}/config/system.yaml"
 ARTIFACTS_DIR="${PROJECT_ROOT}/deploy/artifacts"
 
@@ -35,8 +35,8 @@ except Exception:
 
 echo "Evaluation seeds (${#SEEDS[@]}): ${SEEDS[*]}"
 
-# Scenarios to evaluate (S0 to S4)
-SCENARIOS=("S0" "S1" "S2" "S3" "S4")
+# Scenarios to evaluate (S0 to S5); override with e.g. SCENARIOS_RUN="S5" to run a subset
+read -r -a SCENARIOS <<< "${SCENARIOS_RUN:-S0 S1 S2 S3 S4 S5}"
 
 # Policies: 5 baselines + 5 DQN seeds
 BASELINES=("rr" "fpq" "maxweight" "cag" "random")
@@ -49,26 +49,28 @@ trap 'rm -f "${JOB_FILE}"' EXIT
 for sc in "${SCENARIOS[@]}"; do
     # Scenario flag settings
     SC_FLAGS="--slotDuration=${SLOT_DURATION} --simTime=${SIM_TIME}"
+    # Scenario flags. S1/S3 TX powers were chosen from measured RSSI only (never from scheduler results):
+    # S1 puts the far nodes at about -75..-79 dBm (target band -85..-78); S3 lets STA-4's walk reach about -80 dBm
+    # while staying associated (at 0 dBm it loses association at the edge and never rejoins).
     case "$sc" in
-        "S0")
-            # Nominal (5, 8, 12, 18m, 20 dBm)
+        "S0")  # Nominal: 5/8/12/18 m, 20 dBm
             SC_FLAGS="${SC_FLAGS} --txPower=20.0 --distanceScale=1.0"
             ;;
-        "S1")
-            # Weak links (far nodes in sensitive region -85 to -78 dBm)
-            SC_FLAGS="${SC_FLAGS} --txPower=16.0 --distanceScale=1.6"
+        "S1")  # Weak links
+            SC_FLAGS="${SC_FLAGS} --txPower=-5.0 --distanceScale=1.0"
             ;;
-        "S2")
-            # Burst interferer near routine node
-            SC_FLAGS="${SC_FLAGS} --interferer=cochannel --intfStart=30 --intfStop=150 --intfRateMbps=2.0"
+        "S2")  # Co-channel interferer 30-150 s; ~20% extra loss on routine STA-4 while it is on
+            SC_FLAGS="${SC_FLAGS} --interferer=cochannel --intfStart=30 --intfStop=150 --intfRateMbps=2.0 --intfLossNode=3 --intfLoss=0.2"
             ;;
-        "S3")
-            # Routine node walking to edge and back
-            SC_FLAGS="${SC_FLAGS} --mobileNode=3 --mobileSpeed=1.0"
+        "S3")  # Routine STA-4 walks to the cell edge and back (1 m/s)
+            SC_FLAGS="${SC_FLAGS} --txPower=5.0 --mobileNode=3 --mobileSpeed=1.0"
             ;;
-        "S4")
-            # Fault: urgent node 1 down for 30s
+        "S4")  # Fault: urgent STA-2 down 60-90 s
             SC_FLAGS="${SC_FLAGS} --failNode=1 --failAt=60 --recoverAt=90"
+            ;;
+        "S5")  # Training-regime loss (~22% wasted slots under RR, all four nodes still associated).
+            # -7 dBm chosen from Round Robin probe runs only: -9 dBm drops STA-4's association (fault, not loss).
+            SC_FLAGS="${SC_FLAGS} --txPower=-7.0 --distanceScale=1.0"
             ;;
     esac
 
@@ -77,7 +79,7 @@ for sc in "${SCENARIOS[@]}"; do
         for s in "${SEEDS[@]}"; do
             OUT_DIR="${RESULTS_ROOT}/${sc}/${pol}/seed${s}"
             mkdir -p "${OUT_DIR}"
-            echo "${NS3_DIR} ${OUT_DIR}/log.csv --scheduler=${pol} --policyId=${pol} --seed=${s} ${SC_FLAGS}" >> "${JOB_FILE}"
+            echo "--scheduler=${pol} --policyId=${pol} --seed=${s} ${SC_FLAGS} --csvOutput=${OUT_DIR}/log.csv" >> "${JOB_FILE}"
         done
     done
 
@@ -91,7 +93,7 @@ for sc in "${SCENARIOS[@]}"; do
         for s in "${SEEDS[@]}"; do
             OUT_DIR="${RESULTS_ROOT}/${sc}/${POL_ID}/seed${s}"
             mkdir -p "${OUT_DIR}"
-            echo "${NS3_DIR} ${OUT_DIR}/log.csv --scheduler=dqn --policyFile=${TXT_FILE} --policyId=${POL_ID} --seed=${s} ${SC_FLAGS}" >> "${JOB_FILE}"
+            echo "--scheduler=dqn --policyFile=${TXT_FILE} --policyId=${POL_ID} --seed=${s} ${SC_FLAGS} --csvOutput=${OUT_DIR}/log.csv" >> "${JOB_FILE}"
         done
     done
 done
@@ -99,20 +101,15 @@ done
 TOTAL_JOBS=$(wc -l < "${JOB_FILE}")
 echo "Generated ${TOTAL_JOBS} evaluation runs in queue."
 
-# Worker execution function
-run_single_sim() {
-    local ns3_dir="$1"
-    local csv_out="$2"
-    shift 2
-    local extra_args="$*"
-
-    (cd "${ns3_dir}" && ./ns3 run "scratch/aoi-scheduler/aoi-scheduler-sim --enableNetAnim=false --csvOutput=${csv_out} ${extra_args}") > /dev/null 2>&1
-    echo "[COMPLETED] ${csv_out}"
-}
-export -f run_single_sim
-
-# Run in parallel using xargs
-xargs -P "${N_CORES}" -n 3 -a "${JOB_FILE}" bash -c 'run_single_sim "$0" "$1" "$2"'
+# Run the prebuilt simulator binary directly (one process per job, in parallel).
+SIM_BIN="$(ls "${NS3_DIR}"/build/scratch/aoi-scheduler/ns3*-aoi-scheduler-sim-* 2>/dev/null | head -n1)"
+if [ -z "${SIM_BIN}" ]; then
+    (cd "${NS3_DIR}" && ./ns3 build scratch/aoi-scheduler/aoi-scheduler-sim)
+    SIM_BIN="$(ls "${NS3_DIR}"/build/scratch/aoi-scheduler/ns3*-aoi-scheduler-sim-* | head -n1)"
+fi
+echo "Simulator binary: ${SIM_BIN}"
+export SIM_BIN
+xargs -P "${N_CORES}" -I{} bash -c '"${SIM_BIN}" --enableNetAnim=false {} > /dev/null 2>&1 || echo "[FAILED] {}"' < "${JOB_FILE}"
 
 echo "========================================================"
 echo " All simulation runs completed."
@@ -120,7 +117,7 @@ echo " Generating gap analysis and figures..."
 echo "========================================================"
 
 cd "${PROJECT_ROOT}"
-python3 -m eval.figures --results-root "${RESULTS_ROOT}" || true
+python3 tools/ns3_summarize.py --results-root "${RESULTS_ROOT}"
 
 echo "========================================================"
 echo " Campaign complete! Results stored under ${RESULTS_ROOT}"
