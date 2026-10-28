@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Record ns-3 runs for the dashboard's replay mode (no --realtime, so each run takes seconds).
 
-  python3 ns3-sim/scripts/record_runs.py --scenarios            # S0-S4 + demo timeline x rr/maxweight/cag/dqn
+  python3 ns3-sim/scripts/record_runs.py --scenarios            # S0-S4 + demo timeline x dqn/cag/fpq/rr
   python3 ns3-sim/scripts/record_runs.py --best-cases           # re-record the selected best-case runs
 Outputs: ns3-sim/results/scenarios/<S>/<policy>.csv and ns3-sim/results/best_cases/<id>/<policy>.csv
 """
@@ -28,7 +28,7 @@ SCENARIOS = {
     "S5": "--txPower=-7.0 --distanceScale=1.0",
 }
 DEMO_FLAGS = f"--scenarioFile={ROOT / 'ns3-sim' / 'scenarios' / 'demo.json'}"
-HEURISTICS = ["rr", "maxweight", "cag"]
+HEURISTICS = ["cag", "fpq", "rr"]   # panel comparison set (DQN is recorded separately)
 
 
 def find_binary():
@@ -103,7 +103,7 @@ def main():
             d = base / c["id"]
             dq = f"dqn_seed{c['dqn_seed']}"
             cmds.append(job(binary, d / "dqn.csv", "dqn", dq, flags, 300, c["eval_seed"], ART / f"{dq}.txt"))
-            for pol in {c["best_heuristic"], "rr"}:
+            for pol in HEURISTICS:
                 cmds.append(job(binary, d / f"{pol}.csv", pol, pol, flags, 300, c["eval_seed"]))
     sys.exit(0 if run_all(cmds, args.workers) else 1)
 

@@ -85,6 +85,10 @@ def run_metrics(csv_path, w, ceil, tau=None):
         m["aoi_p99_urgent"] = np.percentile(urgent_age, 99)
         x = aoi.mean(axis=0) / tau
         m["jain_norm_aoi"] = x.sum() ** 2 / (len(x) * (x ** 2).sum())
+        # deadline balance (what the DQN reward targets): each class judged against its own deadline
+        norm = aoi / tau
+        m["worst_class_miss"] = max(m["soft_exc_urgent"], m["soft_exc_important"], m["soft_exc_routine"])
+        m["peak_norm_age"] = norm.max(axis=1).mean()
     return m, df
 
 
@@ -136,7 +140,7 @@ def main():
     w, ceil, tau = load_cfg()
 
     rows, fault_rows = [], []
-    for csv in sorted(root.glob("S*/*/seed*/log.csv")):
+    for csv in sorted(root.glob("*/*/seed*/log.csv")):
         sc, pol, seed_dir = csv.parts[-4], csv.parts[-3], csv.parts[-2]
         seed = int(re.sub(r"\D", "", seed_dir))
         m, df = run_metrics(csv, w, ceil, tau)

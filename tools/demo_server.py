@@ -32,7 +32,94 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCENARIO_RUNS = PROJECT_ROOT / "ns3-sim" / "results" / "scenarios"    # <S>/<policy>.csv (record_runs.py --scenarios)
 BEST_CASE_RUNS = PROJECT_ROOT / "ns3-sim" / "results" / "best_cases"  # <id>/<policy>.csv (record_runs.py --best-cases)
 SUMMARY_JSON = PROJECT_ROOT / "results" / "ns3_campaign" / "summary" / "best_cases.json"
+PANEL_CSV = PROJECT_ROOT / "results" / "ns3_campaign" / "summary" / "panel_evidence.csv"
+TARGETED_DIR = PROJECT_ROOT / "results" / "ns3_targeted" / "summary"   # run_targeted.sh + ns3_summarize + panel_evidence
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+# metrics shown on the headline tables (pre-registered deadline / tail / fairness metrics)
+PANEL_METRICS = {"soft_exc_urgent", "soft_exc_important", "soft_exc_routine", "aoi_mean_n3", "cw_aoi", "cw_aoi_p95", "jain_norm_aoi"}
+FPQ_METRICS = {"cw_aoi", "soft_exc_important", "soft_exc_routine"}   # Fixed Priority loses to anything on starved classes; keep the table short
+RANK_METRICS = ["cw_aoi", "soft_exc_urgent", "soft_exc_important"]
+RANK_POLICIES = ["dqn", "cag", "fpq", "rr"]                          # comparison set for the panel
+
+
+def panel_summary():
+    """Significance-tested DQN results (tools/panel_evidence.py) shaped for the Evidence view."""
+    num = ("pool_dqn", "pool_base", "pool_gain", "pool_gain_pct", "pool_ci_lo", "pool_ci_hi", "pool_wins",
+           "pool_n", "dep_gain_pct", "dep_wins", "pool_p_holm", "minutes_per_hour")
+    rows = []
+    with open(PANEL_CSV, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            for k in num:
+                r[k] = float(r[k]) if r[k] not in ("", None) else None
+            for k in ("stat_pool", "stat_dep", "practical", "passes", "sig_loss"):
+                r[k] = r[k] == "True"
+            rows.append(r)
+    rows = [r for r in rows if r["baseline"] in RANK_POLICIES]
+
+    def pick(r):
+        keep = ("scenario", "metric", "kind", "baseline", "pool_dqn", "pool_base", "pool_gain", "pool_gain_pct",
+                "pool_ci_lo", "pool_ci_hi", "pool_wins", "pool_n", "dep_gain_pct", "dep_wins", "minutes_per_hour")
+        return {k: r[k] for k in keep}
+
+    main = [r for r in rows if r["scenario"] != "S4" and r["metric"] in PANEL_METRICS]
+    wins = [r for r in main if r["passes"] and (r["baseline"] != "fpq" or r["metric"] in FPQ_METRICS)]
+    # claims that look good pooled but fail a rule, with the reason
+    notsig = []
+    for r in rows:
+        if r["scenario"] == "S4" or r["baseline"] != "cag" or r["pool_gain_pct"] <= 5:
+            continue
+        if r["metric"] not in ("cw_aoi", "soft_exc_important", "aoi_mean_n3"):
+            continue
+        if not r["passes"]:
+            reason = ("holds only for some training seeds (not the deployed one)" if r["stat_pool"] and not r["stat_dep"]
+                      else "confidence interval includes zero" if not r["stat_pool"] else "below practical size")
+            notsig.append(dict(pick(r), reason=reason))
+    costs = [pick(r) for r in rows if r["sig_loss"] and r["scenario"] != "S4"
+             and ((r["baseline"] in ("cag", "fpq") and r["metric"] in ("soft_exc_urgent", "cw_aoi"))
+                  or (r["baseline"] == "rr" and r["metric"] in ("soft_exc_important", "soft_exc_routine")))]
+    # ranking of the four schedulers per scenario and metric (1 = best, lower is better)
+    ranking = []
+    for sc in sorted({r["scenario"] for r in rows}):
+        for m in RANK_METRICS:
+            sub = [r for r in rows if r["scenario"] == sc and r["metric"] == m]
+            if not sub:
+                continue
+            vals = {"dqn": sub[0]["pool_dqn"], **{r["baseline"]: r["pool_base"] for r in sub}}
+            order = sorted(vals, key=vals.get)
+            tied = [r["baseline"] for r in sub if not r["stat_pool"] and not r["sig_loss"]]   # DQN vs this one: no significant difference
+            ranking.append({"scenario": sc, "metric": m, "kind": sub[0]["kind"], "values": vals, "tied": tied,
+                            "rank": {p: order.index(p) + 1 for p in vals}})
+    return {"deployed_seed": int(rows[0]["deployed_seed"]), "ranking": ranking,
+            "vs_rr": [pick(r) for r in wins if r["baseline"] == "rr"],
+            "vs_fpq": [pick(r) for r in wins if r["baseline"] == "fpq"],
+            "vs_cag": [pick(r) for r in wins if r["baseline"] == "cag"],
+            "not_significant": notsig, "costs": costs}
+
+
+TARGETED_METRICS = ["worst_class_miss", "soft_exc_urgent", "soft_exc_important", "soft_exc_routine", "cw_aoi"]
+
+
+def targeted_summary():
+    """Targeted scenarios (lossy links, fresh seeds 500-519): per-scheduler means and deployed-DQN comparisons."""
+    runs = list(csv.DictReader(open(TARGETED_DIR / "per_run_metrics.csv", newline="", encoding="utf-8")))
+    ev = list(csv.DictReader(open(TARGETED_DIR / "panel_evidence.csv", newline="", encoding="utf-8")))
+    deployed = int(ev[0]["deployed_seed"])
+    means = {}
+    for r in runs:
+        who = "dqn" if r["policy_dir"] == f"dqn_seed{deployed}" else ("dqn_all" if r["family"] == "dqn" else r["family"])
+        for m in TARGETED_METRICS:
+            means.setdefault(r["scenario"], {}).setdefault(who, {}).setdefault(m, []).append(float(r[m]))
+    means = {sc: {who: {m: sum(v) / len(v) for m, v in ms.items()} for who, ms in d.items()} for sc, d in means.items()}
+    comps = []
+    for r in ev:
+        if r["metric"] not in TARGETED_METRICS:
+            continue
+        comps.append({k: (r[k] if k in ("scenario", "metric", "kind", "baseline") else float(r[k]))
+                      for k in ("scenario", "metric", "kind", "baseline", "dep_dqn", "dep_base", "dep_gain", "dep_gain_pct",
+                                "dep_ci_lo", "dep_ci_hi", "dep_wins", "dep_n", "dep_p_holm", "pool_gain_pct", "pool_wins")})
+    return {"deployed_seed": deployed, "means": means, "comparisons": comps}
 
 
 class LiveTelemetryListener(threading.Thread):
@@ -94,7 +181,7 @@ def _load_recorder():
 
 class LiveRunner:
     """Starts / stops real-time ns-3 runs on request from the dashboard (whitelisted parameters only)."""
-    MODES = ("compare", "rr", "maxweight", "cag", "dqn")
+    MODES = ("compare", "all", "rr", "maxweight", "cag", "random", "fpq", "dqn")
 
     def __init__(self, listener):
         self.listener = listener
@@ -141,7 +228,7 @@ class LiveRunner:
             flags += f" --realtime=true --liveUdpPort={self.listener.port}"
             sim_time = None if scenario == "demo" else 120
             out_dir = PROJECT_ROOT / "ns3-sim" / "results" / "live"
-            pols = ["rr", "maxweight", "cag", "dqn"] if mode == "compare" else [mode]
+            pols = {"compare": ["dqn", "cag", "fpq", "rr"]}.get(mode, [mode])
             for pol in pols:
                 pid = f"dqn_seed{dqn_seed}" if pol == "dqn" else pol
                 pfile = rec.ART / f"{pid}.txt" if pol == "dqn" else None
@@ -193,7 +280,8 @@ class DemoHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         d = base / name
         if not d.is_dir():
             return None
-        return {p.stem: load_replay_csv(p) for p in sorted(d.glob("*.csv"))}
+        # only the panel comparison set; other recordings in the folder (e.g. older Max-Weight runs) are ignored
+        return {p.stem: load_replay_csv(p) for p in sorted(d.glob("*.csv")) if p.stem in RANK_POLICIES}
 
     def do_GET(self):
         route = urllib.parse.urlparse(self.path)
@@ -212,6 +300,14 @@ class DemoHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         if route.path == "/api/live/status":
             runner = getattr(self.server, "runner", None)
             return self._json(runner.status() if runner else {"running": False, "error": "server not started with --live"})
+        if route.path == "/api/targeted":
+            if not (TARGETED_DIR / "panel_evidence.csv").exists():
+                return self._json({"error": "run: ns3-sim/scripts/run_targeted.sh, then ns3_summarize.py and panel_evidence.py on results/ns3_targeted"}, 404)
+            return self._json(targeted_summary())
+        if route.path == "/api/panel":
+            if not PANEL_CSV.exists():
+                return self._json({"error": "run: python3 tools/panel_evidence.py --results-root results/ns3_campaign"}, 404)
+            return self._json(panel_summary())
         if route.path == "/api/summary":
             if not SUMMARY_JSON.exists():
                 return self._json({"error": "run: python3 ns3-sim/analysis/find_best_cases.py"}, 404)

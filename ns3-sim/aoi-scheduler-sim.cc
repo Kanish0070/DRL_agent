@@ -1029,6 +1029,7 @@ main(int argc, char* argv[])
     double recoverAtS = 100.0;
     std::string scenarioFile = "";
     uint16_t liveUdpPort = 0;         // live telemetry port (N2.6)
+    double sampleIntervalS = 0.1;     // sensor sampling period (default 10 Hz: a fresh sample every slot)
     bool lossModel = true;            // delivery-loss model, defaults match config/measured_params.yaml
     MasterSchedulerApp::LossConfig lossCfg;
     bool staticArp = true;
@@ -1058,6 +1059,7 @@ main(int argc, char* argv[])
     cmd.AddValue("recoverAt", "Node fault recovery time (s)", recoverAtS);
     cmd.AddValue("scenarioFile", "Path to scenario JSON file", scenarioFile);
     cmd.AddValue("liveUdpPort", "UDP port for live telemetry streaming (0 to disable)", liveUdpPort);
+    cmd.AddValue("sampleInterval", "Sensor sampling period in seconds (default 0.1 = a fresh sample every slot)", sampleIntervalS);
     cmd.AddValue("lossModel", "Apply the logistic + Gilbert-Elliott delivery-loss model (matches sim/channel.py)", lossModel);
     cmd.AddValue("r50", "Logistic R50 (dBm)", lossCfg.r50);
     cmd.AddValue("slope", "Logistic slope (dB)", lossCfg.slope);
@@ -1282,7 +1284,7 @@ main(int argc, char* argv[])
     for (uint32_t i = 0; i < N_NODES; ++i)
     {
         staAddrs.push_back(staIf.GetAddress(i));
-        Ptr<IoTSensorApp> sensorApp = CreateObject<IoTSensorApp>(i, apIf.GetAddress(0), 0.1, 2.0);
+        Ptr<IoTSensorApp> sensorApp = CreateObject<IoTSensorApp>(i, apIf.GetAddress(0), sampleIntervalS, 2.0);
         staNodes.Get(i)->AddApplication(sensorApp);
         sensorApp->SetStartTime(Seconds(0.5));
         sensorApp->SetStopTime(Seconds(simTimeS));

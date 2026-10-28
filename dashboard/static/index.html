@@ -258,6 +258,12 @@
     .share .nm { width:78px; color:var(--text-muted); } .share .tr { position:relative; flex:1; height:12px; background:#090d16; border-radius:3px; }
     .share .fl { position:absolute; top:0; left:0; height:100%; border-radius:3px; } .share .fair { position:absolute; top:-2px; width:2px; height:16px; background:#fff; opacity:.8; }
     .share .vl { width:44px; text-align:right; font-family:monospace; }
+    .perf-grid { display:grid; grid-template-columns: 1.7fr 1fr; gap:14px; }
+    @media (max-width: 1000px) { .perf-grid { grid-template-columns: 1fr; } }
+    .race { display:flex; align-items:center; gap:6px; font-size:0.78rem; margin:4px 0; }
+    .race .nm { width:128px; color:var(--text-muted); } .race .tr { position:relative; flex:1; height:12px; background:#090d16; border-radius:3px; }
+    .race .fl { position:absolute; top:0; left:0; height:100%; border-radius:3px; } .race .vl { width:56px; text-align:right; font-family:monospace; }
+    .race .dl { width:62px; text-align:right; font-family:monospace; font-size:0.74rem; }
     .sbs4 { grid-template-columns: repeat(4, 1fr) !important; }
     @media (max-width: 1100px) { .sbs4 { grid-template-columns: repeat(2, 1fr) !important; } }
   </style>
@@ -299,6 +305,7 @@
       <option value="S2">S2 Co-channel interferer</option>
       <option value="S3">S3 Mobility</option>
       <option value="S4">S4 Node fault</option>
+      <option value="S5">S5 Training-regime loss</option>
     </select>
     <select id="caseSelect" style="display:none;"></select>
     <span id="liveCtl" style="display:none; align-items:center; gap:8px;">
@@ -306,8 +313,8 @@
       <select id="liveMode">
         <option value="compare" selected>All 4 schedulers (compare)</option>
         <option value="dqn">DQN only</option>
-        <option value="maxweight">Max-Weight only</option>
         <option value="cag">CAG only</option>
+        <option value="fpq">Fixed Priority only</option>
         <option value="rr">Round Robin only</option>
       </select>
       <select id="liveSeed" title="DQN training seed">
@@ -335,7 +342,7 @@
     <select id="policySelect">
       <option value="dqn" selected>DQN (Deep Q-Network)</option>
       <option value="cag">CAG (Channel-Aware Greedy)</option>
-      <option value="maxweight">Max-Weight</option>
+      <option value="fpq">Fixed Priority</option>
       <option value="rr">Round Robin</option>
     </select>
 
@@ -402,20 +409,19 @@
     </div>
   </div>
 
-  <!-- AoI freshness view (default) + classic sawtooth (toggle) -->
-  <div class="card" style="margin-bottom: 16px;">
-    <div class="card-header">
-      <span id="freshTitle">How old is each node's data? (last 30 s)</span>
-      <button id="btnSaw" class="secondary" style="padding:3px 10px; font-size:0.75rem;">Classic sawtooth</button>
-    </div>
-    <div id="freshHelp" style="font-size:0.82rem; color:var(--text-muted); margin-bottom:4px;"></div>
-    <div id="freshNote" style="font-size:0.85rem; color:#7dd3fc; min-height:1.3em; margin-bottom:6px;"></div>
-    <canvas id="freshCanvas" width="900" height="250" style="width:100%; height:auto; background:#090d16; border-radius:6px;"></canvas>
-    <canvas id="sawtoothCanvas" width="900" height="240" style="display:none;"></canvas>
-    <div id="freshLegend" class="legend">
-      <span><i style="background:#10b981"></i>fresh</span><span><i style="background:#f59e0b"></i>getting stale</span>
-      <span><i style="background:#ef4444"></i>at its safety ceiling</span><span><i style="background:#fff"></i>new update delivered</span>
-      <span><i style="background:#475569"></i>node down</span>
+  <!-- Live performance: running average AoI of every scheduler, and DQN's improvement over each -->
+  <div class="card" style="margin-bottom: 16px;" id="perfCard">
+    <div class="card-header"><span>Live performance: how much better is the DQN? <span class="srctag" id="perfTag">running average, builds as the run plays</span></span></div>
+    <div class="perf-grid">
+      <div>
+        <div class="work-note" style="margin:0 0 4px;">DQN's average criticality-weighted AoI vs each baseline, so far (below 0% = DQN better; lower AoI is better).</div>
+        <canvas id="perfChart" width="640" height="250" style="width:100%; height:auto; background:#090d16; border-radius:6px;"></canvas>
+      </div>
+      <div>
+        <div class="work-h">Live ranking (average cw-AoI so far)</div>
+        <div id="perfRace"></div>
+        <div class="work-note" id="perfNote"></div>
+      </div>
     </div>
   </div>
 
@@ -430,10 +436,6 @@
         <div id="agreeBox" class="work-box" style="margin-top:6px;"></div></div>
       <div><div class="work-h">3. Is it safe and winning?</div><div id="safeBox" class="work-box"></div></div>
     </div>
-    <div class="work-h" style="margin-top:10px;">4. Grant timeline (last 30 s): one tick per grant</div>
-    <canvas id="grantRaster" width="900" height="96" style="width:100%; height:auto; background:#090d16; border-radius:6px;"></canvas>
-    <div class="legend"><span><i style="background:#38bdf8"></i>delivered</span><span><i style="background:#f87171"></i>lost</span>
-      <span><i style="background:#ef4444; outline:2px solid #fff"></i>shield-forced grant</span><span><i style="background:#475569"></i>sent to a down node</span></div>
   </div>
 
   <!-- Side-by-Side Mode Container (Hidden by default) -->
@@ -457,9 +459,10 @@
       { id: 3, name: "STA-4", class: "routine", weight: 1.0, dist: 18.0, softMs: 1000, ceilingS: 20.0, color: "#10b981" }
     ];
     const W_SUM = NODES.reduce((a, n) => a + n.weight, 0);
-    const FAMILIES = ['rr', 'maxweight', 'cag', 'dqn'];
-    const FAM_LABEL = { rr: 'Round Robin', maxweight: 'Max-Weight', cag: 'Channel-Aware Greedy', dqn: 'DQN + Shield (proposed)' };
-    const FAM_COLOR = { rr: '#ef4444', maxweight: '#f59e0b', cag: '#a78bfa', dqn: '#38bdf8' };
+    const FAMILIES = ['dqn', 'cag', 'fpq', 'rr'];   // display order everywhere
+    const FAM_LABEL = { rr: 'Round Robin', maxweight: 'Max-Weight', cag: 'Channel-Aware Greedy', dqn: 'DQN + Shield (proposed)', random: 'Random', fpq: 'Fixed Priority' };
+    const FAM_COLOR = { rr: '#ef4444', maxweight: '#f59e0b', cag: '#a78bfa', dqn: '#38bdf8', random: '#94a3b8', fpq: '#64748b' };
+    const ALL_FAMS = FAMILIES;
     const famOf = pid => (pid || '').startsWith('dqn') ? 'dqn' : (pid || '');
 
     // STA-4 walk, mirroring the ns-3 waypoint model (1 m/s out from 45 s to 45 m, back from 80 s)
@@ -486,6 +489,8 @@
         events: [{ t: 0, text: "Nominal: all links strong" }], fx: t => ({}) },
       S1: { title: "S1 Weak links", caption: "TX power -5 dBm puts the far links near the loss cliff (STA-4 about -79 dBm): wasted grants rise from 6% to 17%.",
         events: [{ t: 0, text: "Weak links: far nodes near the delivery cliff (watch the RSSI labels)" }], fx: t => ({}) },
+      S5: { title: "S5 Training-regime loss", caption: "TX power -7 dBm: about 23% of Round Robin grants are wasted on lossy links, the loss level the DQN was trained for.",
+        events: [{ t: 0, text: "Lossy links throughout: all four nodes still associated" }], fx: t => ({}) },
       S2: { title: "S2 Co-channel interferer", caption: "Interferer near the AP from 30 s: real co-channel traffic plus 20% extra loss on routine STA-4.",
         events: [{ t: 0, text: "Nominal" }, { t: 30, text: "Co-channel interferer ON: +20% loss on STA-4" }],
         fx: t => ({ interfererOn: t >= 30 && t < 150 }) },
@@ -526,8 +531,6 @@
     // Canvas Elements
     const topoCanvas = document.getElementById("topologyCanvas");
     const topoCtx = topoCanvas.getContext("2d");
-    const sawCanvas = document.getElementById("sawtoothCanvas");
-    const sawCtx = sawCanvas.getContext("2d");
 
     // Node geometry (shared by topology drawing and packet animation)
     const TOPO_ANGLES = [Math.PI * 1.25, Math.PI * 0.75, Math.PI * 1.75, Math.PI * 0.25];
@@ -629,44 +632,6 @@
         topoCtx.fillStyle = "#f87171"; topoCtx.font = "bold 8px sans-serif"; topoCtx.textAlign = "center";
         topoCtx.fillText("NODE DOWN", dx, dy - 18);
       }
-    }
-
-    // Render Sawtooth Trajectory
-    function renderSawtooth(run, currentS) {
-      const w = sawCanvas.width;
-      const h = sawCanvas.height;
-      sawCtx.clearRect(0, 0, w, h);
-
-      // Grid lines
-      sawCtx.strokeStyle = "#1e293b";
-      sawCtx.lineWidth = 1;
-      for (let y = 0; y < h; y += 40) {
-        sawCtx.beginPath();
-        sawCtx.moveTo(0, y);
-        sawCtx.lineTo(w, y);
-        sawCtx.stroke();
-      }
-
-      const windowSlots = 300; // 30s
-      const startS = Math.max(0, currentS - windowSlots);
-      const endS = Math.min(run.length - 1, startS + windowSlots);
-      const maxAoI = (curScen === 'S4' || curScen === 'demo') ? 8.0 : 3.0; // y-scale (s)
-
-      NODES.forEach((n, idx) => {
-        sawCtx.strokeStyle = n.color;
-        sawCtx.lineWidth = 1.5;
-        sawCtx.beginPath();
-
-        for (let s = startS; s <= currentS; s++) {
-          const x = ((s - startS) / windowSlots) * w;
-          const aoi = run[s].aois[idx];
-          const y = h - (aoi / maxAoI) * h;
-
-          if (s === startS) sawCtx.moveTo(x, y);
-          else sawCtx.lineTo(x, y);
-        }
-        sawCtx.stroke();
-      });
     }
 
     // ------------------------------------------------------------------
@@ -818,94 +783,8 @@
     }
 
     // ------------------------------------------------------------------
-    // Freshness view: one lane per node, colour = how stale that node's data is relative to its safety ceiling
-    // ------------------------------------------------------------------
-    let sawMode = false;
-    const freshCv = document.getElementById("freshCanvas"), freshCtx = freshCv.getContext("2d");
-    const staleColor = f => {   // 0 = fresh (green) -> 0.5 amber -> 1 = at ceiling (red)
-      f = Math.max(0, Math.min(1, f));
-      const a = f < 0.5 ? [16, 185, 129] : [245, 158, 11], b = f < 0.5 ? [245, 158, 11] : [239, 68, 68];
-      const k = f < 0.5 ? f / 0.5 : (f - 0.5) / 0.5;
-      return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',')})`;
-    };
-    document.getElementById("freshHelp").innerHTML =
-      "<b>Age of Information (AoI)</b> = how old the newest update from a node is. It grows by 1 s every second and snaps back to ~0 " +
-      "when a new update arrives (white tick). A good scheduler keeps every lane green, urgent nodes first.";
-    let lastDeliveryNote = "";
-
-    function renderFreshness(run, idx) {
-      const ctx = freshCtx, W = freshCv.width, H = freshCv.height, padL = 78, padR = 118, padT = 6, laneH = 52, gap = 6;
-      ctx.clearRect(0, 0, W, H);
-      const win = 300, lo = Math.max(0, idx - win + 1);
-      const plotW = W - padL - padR, sw = plotW / win;
-      NODES.forEach((n, ni) => {
-        const y0 = padT + ni * (laneH + gap);
-        ctx.fillStyle = "#e2e8f0"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "left";
-        ctx.fillText(n.name, 6, y0 + 18);
-        ctx.fillStyle = "#94a3b8"; ctx.font = "9px sans-serif"; ctx.fillText(`${n.class}, limit ${n.ceilingS}s`, 6, y0 + 32);
-        for (let s = lo; s <= idx; s++) {
-          const f = run[s], x = padL + (s - lo) * sw;
-          if (ni === 1 && f.sta2Dead) { ctx.fillStyle = "#334155"; ctx.fillRect(x, y0, sw + 0.6, laneH); continue; }
-          ctx.fillStyle = staleColor(f.aois[ni] / n.ceilingS); ctx.fillRect(x, y0, sw + 0.6, laneH);
-        }
-        // AoI trace on top of the colour band (height = age / ceiling)
-        ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 1.2; ctx.beginPath();
-        for (let s = lo; s <= idx; s++) {
-          const f = run[s], x = padL + (s - lo + 0.5) * sw, y = y0 + laneH - Math.min(1, f.aois[ni] / n.ceilingS) * (laneH - 4) - 2;
-          if (s === lo) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        // deliveries
-        ctx.fillStyle = "#fff";
-        for (let s = lo; s <= idx; s++) if (run[s].delivered === ni && run[s].success) ctx.fillRect(padL + (s - lo) * sw, y0, Math.max(1.2, sw), 6);
-        // live age clock
-        const cur = run[idx], dead = ni === 1 && cur.sta2Dead;
-        ctx.textAlign = "left"; ctx.fillStyle = dead ? "#94a3b8" : "#fff"; ctx.font = "bold 15px monospace";
-        ctx.fillText(dead ? "DOWN" : `${cur.aois[ni].toFixed(2)} s`, W - padR + 10, y0 + 24);
-        ctx.fillStyle = "#94a3b8"; ctx.font = "9px sans-serif"; ctx.fillText(dead ? "no updates" : `of ${n.ceilingS} s limit`, W - padR + 10, y0 + 38);
-      });
-      // scenario event markers
-      ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(226,232,240,0.55)"; ctx.fillStyle = "#cbd5e1"; ctx.font = "9px sans-serif";
-      scenDef().events.forEach(ev => {
-        if (ev.t <= 0) return;
-        const sIdx = run.findIndex(f => f.t >= ev.t - 1e-6);
-        if (sIdx < lo || sIdx > idx) return;
-        const x = padL + (sIdx - lo) * sw; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-        ctx.textAlign = "left"; ctx.fillText(ev.text.length > 34 ? ev.text.slice(0, 33) + "…" : ev.text, x + 3, H - 3);
-      });
-      ctx.setLineDash([]);
-      // time axis
-      ctx.fillStyle = "#64748b"; ctx.textAlign = "left"; ctx.font = "9px sans-serif";
-      ctx.fillText(`t = ${run[lo].t.toFixed(0)} s`, padL, H - 3); ctx.textAlign = "right"; ctx.fillText(`t = ${run[idx].t.toFixed(0)} s`, W - padR, H - 3);
-      // explanatory caption for the latest meaningful event
-      for (let s = idx; s > Math.max(0, idx - 15); s--) {
-        const f = run[s], p = run[s - 1];
-        if (f.success && f.delivered >= 0 && p && p.aois[f.delivered] > 0.8) {
-          lastDeliveryNote = `t=${f.t.toFixed(1)}s: ${NODES[f.delivered].name} delivered a fresh update, its data age dropped from ${p.aois[f.delivered].toFixed(2)} s to ${f.aois[f.delivered].toFixed(2)} s.`;
-          break;
-        }
-      }
-      if (cur_sta2(run[idx])) lastDeliveryNote = `STA-2 is down: no updates are arriving, so its data keeps ageing (${run[idx].aois[1].toFixed(1)} s and counting).`;
-      document.getElementById("freshTitle").innerText = "How old is each node's data? (last 30 s)" + (lastDeliveryNote ? "  —  " + lastDeliveryNote : "");
-    }
-    const cur_sta2 = f => f.sta2Dead;
-
-    document.getElementById("btnSaw").addEventListener("click", () => {
-      sawMode = !sawMode;
-      document.getElementById("sawtoothCanvas").style.display = sawMode ? "block" : "none";
-      freshCv.style.display = sawMode ? "none" : "block";
-      document.getElementById("freshLegend").style.display = sawMode ? "none" : "flex";
-      document.getElementById("freshHelp").style.display = sawMode ? "none" : "block";
-      document.getElementById("btnSaw").innerText = sawMode ? "Freshness view" : "Classic sawtooth";
-      document.getElementById("freshTitle").innerText = sawMode ? "Rolling AoI sawtooth (last 30 s)" : "How old is each node's data? (last 30 s)";
-      document.getElementById("freshNote").style.display = sawMode ? "none" : "block";
-      updateFrame();
-    });
-
-    // ------------------------------------------------------------------
     // "Is the scheduler working?" panel (all values derived from the logged run, not from ns-3 internals)
     // ------------------------------------------------------------------
-    const rasterCv = document.getElementById("grantRaster"), rasterCtx = rasterCv.getContext("2d");
     (function buildShare() {
       const box = document.getElementById("shareBars");
       NODES.forEach(n => { const d = document.createElement("div"); d.className = "share";
@@ -952,18 +831,64 @@
         `Time with every live node under its safety ceiling: <span class="${f.withinCeilPct > 99 ? 'good' : 'warn'}">${f.withinCeilPct.toFixed(2)}%</span>.<br>` +
         `Worst wait of an urgent node so far: <b>${f.maxUrgent.toFixed(2)} s</b> (limit 2.0 s).` + vs;
       document.getElementById("workWho").innerText = `${FAM_LABEL[mainFam()] || ""}${f.policyId ? " · " + f.policyId : ""}`;
+    }
 
-      // grant timeline raster
-      const c = rasterCtx, W = rasterCv.width, H = rasterCv.height, padL = 60, rowH = H / 4, sw = (W - padL - 6) / win;
+    // ------------------------------------------------------------------
+    // Live performance: running-average cw-AoI per scheduler + DQN's improvement over each baseline
+    // ------------------------------------------------------------------
+    const perfCv = document.getElementById("perfChart"), perfCtx = perfCv.getContext("2d");
+    function renderPerf() {
+      const dq = runs.dqn;
+      const others = ALL_FAMS.filter(f => f !== 'dqn' && runs[f] && runs[f].frames.length);
+      const card = document.getElementById("perfCard");
+      if (!dq || !dq.frames.length || !others.length) { card.style.display = "none"; return; }
+      card.style.display = "block";
+      const idxOf = r => source === 'live' ? r.frames.length - 1 : Math.min(currentSlot, r.frames.length - 1);
+      const nowIdx = Math.min(idxOf(dq), ...others.map(f => idxOf(runs[f])));
+      if (nowIdx < 10) return;
+      // series[f][i] = (DQN running avg - baseline running avg) / baseline running avg, in %
+      const diff = f => { const b = runs[f].frames, d = dq.frames, out = new Array(nowIdx + 1);
+        for (let i = 0; i <= nowIdx; i++) out[i] = (d[i].cwMean - b[i].cwMean) / b[i].cwMean * 100; return out; };
+      const series = Object.fromEntries(others.map(f => [f, diff(f)]));
+      const c = perfCtx, W = perfCv.width, H = perfCv.height, padL = 40, padR = 8, padT = 8, padB = 18, startI = 20;
       c.clearRect(0, 0, W, H);
-      NODES.forEach((nd, i) => { c.fillStyle = "#94a3b8"; c.font = "10px sans-serif"; c.textAlign = "left"; c.fillText(nd.name, 6, i * rowH + rowH / 2 + 3);
-        c.strokeStyle = "#1e293b"; c.beginPath(); c.moveTo(padL, (i + 1) * rowH); c.lineTo(W, (i + 1) * rowH); c.stroke(); });
-      for (let s = lo; s <= idx; s++) {
-        const q = run[s]; if (q.granted < 0 || q.granted > 3) continue;
-        const x = padL + (s - lo) * sw, y = q.granted * rowH + 4, dead = q.granted === 1 && q.sta2Dead;
-        c.fillStyle = dead ? "#475569" : q.success ? "#38bdf8" : "#f87171"; c.fillRect(x, y, Math.max(1.5, sw - 0.5), rowH - 8);
-        if (q.shieldFired) { c.strokeStyle = "#fff"; c.lineWidth = 1.5; c.strokeRect(x - 0.5, y - 1, Math.max(2.5, sw), rowH - 6); c.lineWidth = 1; }
-      }
+      const tEnd = source === 'live' ? 120 : dq.frames[dq.frames.length - 1].t;
+      let lo = -5, hi = 5;
+      others.forEach(f => { for (let i = startI; i <= nowIdx; i++) { lo = Math.min(lo, series[f][i]); hi = Math.max(hi, series[f][i]); } });
+      lo = Math.floor(lo / 10) * 10 - 5; hi = Math.ceil(hi / 5) * 5 + 3;
+      lo = Math.max(lo, -35);   // Fixed Priority sits near -80%: clip it so the closer baselines stay readable
+      const X = t => padL + t / tEnd * (W - padL - padR), Y = v => Math.min(H - padB, padT + (hi - v) / (hi - lo) * (H - padT - padB));
+      c.fillStyle = "rgba(52,211,153,0.07)"; c.fillRect(padL, Y(0), W - padL - padR, H - padB - Y(0));   // below 0 = DQN better
+      c.font = "9px sans-serif"; c.textAlign = "right"; c.fillStyle = "#94a3b8"; c.strokeStyle = "#1e293b"; c.lineWidth = 1;
+      const step = (hi - lo) > 80 ? 20 : 10;
+      for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) { c.beginPath(); c.moveTo(padL, Y(v)); c.lineTo(W - padR, Y(v)); c.stroke(); c.fillText(`${v}%`, padL - 4, Y(v) + 3); }
+      c.strokeStyle = "#e2e8f0"; c.lineWidth = 1.4; c.beginPath(); c.moveTo(padL, Y(0)); c.lineTo(W - padR, Y(0)); c.stroke();
+      c.textAlign = "left"; c.fillStyle = "#34d399"; c.fillText("DQN better ↓", padL + 4, H - padB - 4); c.fillStyle = "#f87171"; c.fillText("DQN worse ↑", padL + 4, padT + 9);
+      c.setLineDash([3, 3]); c.strokeStyle = "rgba(226,232,240,0.4)"; c.fillStyle = "#94a3b8";
+      scenDef().events.forEach(ev => { if (ev.t > 0 && ev.t < tEnd) { c.beginPath(); c.moveTo(X(ev.t), padT); c.lineTo(X(ev.t), H - padB); c.stroke(); c.fillText(fmtT(ev.t), X(ev.t) + 2, H - 4); } });
+      c.setLineDash([]);
+      others.forEach(f => {
+        c.strokeStyle = FAM_COLOR[f]; c.lineWidth = 2; c.beginPath();
+        for (let i = startI; i <= nowIdx; i++) { const x = X(dq.frames[i].t), y = Y(series[f][i]); if (i === startI) c.moveTo(x, y); else c.lineTo(x, y); }
+        c.stroke();
+        const lx = X(dq.frames[nowIdx].t), ly = Y(series[f][nowIdx]);
+        c.fillStyle = FAM_COLOR[f]; c.beginPath(); c.arc(lx, ly, 3.5, 0, Math.PI * 2); c.fill();
+        if (series[f][nowIdx] < lo) { c.textAlign = "right"; c.fillText(`${FAM_LABEL[f]} ${series[f][nowIdx].toFixed(0)}% (off scale)`, W - padR - 2, H - padB - 6); c.textAlign = "left"; }
+      });
+      // live ranking ("race")
+      const rows = ALL_FAMS.filter(f => runs[f] && runs[f].frames.length).map(f => ({ f, v: runs[f].frames[Math.min(nowIdx, runs[f].frames.length - 1)].cwMean }))
+                           .sort((a, b) => a.v - b.v);
+      const mx = Math.max(...rows.map(r => r.v)), dv = dq.frames[nowIdx].cwMean;
+      document.getElementById("perfRace").innerHTML = rows.map((r, k) => {
+        const d = (dv - r.v) / r.v * 100, isDq = r.f === 'dqn';
+        const dl = isDq ? '<span style="color:#38bdf8">DQN</span>' : `<span class="${d < -1 ? 'good' : d > 1 ? 'warn' : ''}">DQN ${d > 0 ? '+' : ''}${d.toFixed(1)}%</span>`;
+        return `<div class="race"><span class="nm" style="${isDq ? 'color:#38bdf8;font-weight:700' : ''}">${k + 1}. ${FAM_LABEL[r.f]}</span>` +
+               `<span class="tr"><span class="fl" style="width:${r.v / mx * 100}%;background:${FAM_COLOR[r.f]}"></span></span><span class="vl">${r.v.toFixed(3)}</span><span class="dl">${dl}</span></div>`;
+      }).join("");
+      const hasHeur = runs.cag;
+      document.getElementById("perfNote").innerHTML = `Time so far: ${dq.frames[nowIdx].t.toFixed(0)} s. ` +
+        (hasHeur ? "Against Channel-Aware Greedy, the strongest baseline, the line stays near 0%: the DQN roughly matches it rather than beating it. " : "") +
+        (runs.rr ? "The clear gain is over Round Robin and Fixed Priority." : "");
     }
 
     // ------------------------------------------------------------------
@@ -1003,8 +928,8 @@
         fill.style.backgroundColor = (val >= n.ceilingS) ? "#dc2626" : n.color;
       });
 
-      if (sawMode) renderSawtooth(run, currentSlot); else renderFreshness(run, currentSlot);
       renderWorking(run, currentSlot);
+      renderPerf();
       if (sideBySideMode) updateSbs();
 
       if (source !== 'live' && isPlaying) currentSlot = (currentSlot + 1) % Math.max(1, run.length);
@@ -1083,8 +1008,8 @@
       if (!present.length) return;
       const tEnd = source === 'live' ? 120 : runs[present[0]].frames[runs[present[0]].frames.length - 1].t;
       let yMax = 0.3;
-      present.forEach(f => { const ma = maOf(runs[f]); const hi = idxFor(runs[f]); for (let i = 0; i <= hi; i++) yMax = Math.max(yMax, ma[i] * 1.15); });
-      const X = t => padL + (t / tEnd) * (W - padL - 6), Y = v => (H - padB) - (v / yMax) * (H - padB - 6);
+      present.filter(f => f !== 'fpq').forEach(f => { const ma = maOf(runs[f]); const hi = idxFor(runs[f]); for (let i = 0; i <= hi; i++) yMax = Math.max(yMax, ma[i] * 1.15); });   // Fixed Priority is ~5x higher: clipped, not scaled to
+      const X = t => padL + (t / tEnd) * (W - padL - 6), Y = v => Math.max(4, (H - padB) - (v / yMax) * (H - padB - 6));
       ctx.strokeStyle = "#1e293b"; ctx.fillStyle = "#94a3b8"; ctx.font = "9px sans-serif"; ctx.textAlign = "right"; ctx.lineWidth = 1;
       for (let k = 0; k <= 4; k++) { const v = yMax * k / 4, y = Y(v); ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W, y); ctx.stroke(); ctx.fillText(v.toFixed(2), padL - 4, y + 3); }
       ctx.setLineDash([3, 3]); ctx.strokeStyle = "#475569"; ctx.textAlign = "left";
@@ -1097,7 +1022,7 @@
         ctx.stroke();
       });
       ctx.textAlign = "left"; let lx = padL + 8;
-      present.forEach(f => { ctx.fillStyle = FAM_COLOR[f]; ctx.fillRect(lx, 6, 10, 3); ctx.fillText(f === 'dqn' ? 'DQN' : FAM_LABEL[f], lx + 14, 11); lx += 130; });
+      present.forEach(f => { ctx.fillStyle = FAM_COLOR[f]; ctx.fillRect(lx, 6, 10, 3); ctx.fillText((f === 'dqn' ? 'DQN' : FAM_LABEL[f]) + (f === 'fpq' ? ' (clipped)' : ''), lx + 14, 11); lx += 130; });
     }
 
     function setSideBySide(on) {
@@ -1123,9 +1048,9 @@
       runs = {}; livePollSeq = 0; currentSlot = 0; lastSpawned = null; currentFrame = null; particles.length = 0;
       curScen = scenario; curSet = { kind: 'scenario', name: scenario };
       liveRunId = j.run_id;
-      document.getElementById("policySelect").value = mode === 'compare' ? 'dqn' : mode;
+      document.getElementById("policySelect").value = (mode === 'compare' || mode === 'all') ? 'dqn' : mode;
       isPlaying = true; document.getElementById("btnPlayPause").innerText = "Pause";
-      setSideBySide(mode === 'compare');
+      setSideBySide(mode === 'compare' || mode === 'all');
       renderCaption();
     }
 
@@ -1138,12 +1063,101 @@
     // ------------------------------------------------------------------
     // Evidence view: the measured 1000-run campaign (read from best_cases.json via /api/summary)
     // ------------------------------------------------------------------
-    const POL_ORDER = ['dqn', 'maxweight', 'cag', 'rr', 'random', 'fpq'];
+    const POL_ORDER = ['dqn', 'cag', 'fpq', 'rr'];
     const POL_NAME = { dqn: 'DQN (+shield)', maxweight: 'Max-Weight', cag: 'Channel-Aware Greedy', rr: 'Round Robin', random: 'Random', fpq: 'Fixed Priority' };
     const SCEN_NAME = { S0: 'S0 Nominal', S1: 'S1 Weak links', S2: 'S2 Interferer', S3: 'S3 Mobility', S4: 'S4 Node fault' };
     let evidenceLoaded = false;
 
     const relCell = v => { const c = v < -1 ? 'win' : v > 1 ? 'loss' : 'tie'; return `<td class="${c}">${v > 0 ? '+' : ''}${v.toFixed(1)}%</td>`; };
+
+
+    const PANEL_METRIC = { soft_exc_urgent: 'Urgent nodes past 200 ms', soft_exc_important: 'Important node past 500 ms',
+      soft_exc_routine: 'Routine node past 1000 ms', aoi_mean_n3: 'Important node mean age', cw_aoi_p95: 'Weighted AoI, 95th pct',
+      jain_norm_aoi: 'Fairness (Jain)', cw_aoi: 'Weighted AoI, mean' };
+    const PANEL_SCEN = { S0: 'S0 Nominal', S1: 'S1 Weak links', S2: 'S2 Interferer', S3: 'S3 Mobility', S5: 'S5 Training-regime loss' };
+    const pVal = (k, v) => k === 'rate' ? (v * 100).toFixed(1) + '%' : k === 'age' ? v.toFixed(3) + ' s' : v.toFixed(2);
+    const pGain = (k, g) => k === 'rate' ? Math.abs(g * 100).toFixed(1) + ' pts' : k === 'age' ? Math.round(Math.abs(g) * 1000) + ' ms' : Math.abs(g).toFixed(2);
+    const pReal = r => r.minutes_per_hour != null ? `${r.minutes_per_hour.toFixed(1)} min/h fresher`
+      : r.kind === 'age' ? `${(Math.abs(r.pool_gain) / 0.1).toFixed(1)} sample periods` : '';
+
+    function panelRows(rows) {
+      return rows.map(r => `<tr><td>${PANEL_SCEN[r.scenario]}</td><td>${PANEL_METRIC[r.metric]}</td>
+        <td>${pVal(r.kind, r.pool_dqn)}</td><td>${POL_NAME[r.baseline]} ${pVal(r.kind, r.pool_base)}</td>
+        <td class="win">${r.pool_gain >= 0 ? '' : '-'}${pGain(r.kind, r.pool_gain)} (${r.pool_gain_pct.toFixed(0)}%)</td>
+        <td>${pGain(r.kind, r.pool_ci_lo)} to ${pGain(r.kind, r.pool_ci_hi)}</td><td>${r.pool_wins}/${r.pool_n}</td><td>${pReal(r)}</td></tr>`).join('');
+    }
+    const PANEL_HEAD = '<tr><th>scenario</th><th>metric</th><th>DQN</th><th>baseline</th><th>gain</th><th>95% CI</th><th>seeds won</th><th>in practice</th></tr>';
+
+    async function panelSection() {
+      let p;
+      try { p = await (await fetch('/api/panel')).json(); } catch (e) { return ''; }
+      if (p.error) return `<div class="note">Significance-tested results unavailable: <code>${p.error}</code></div>`;
+      const rank = m => Object.keys(PANEL_METRIC).indexOf(m);
+      const order = (a, b) => rank(a.metric) - rank(b.metric) || a.scenario.localeCompare(b.scenario);
+      const RK = ['dqn', 'cag', 'fpq', 'rr'];
+      let h = `<h3>Ranking: DQN, Channel-Aware Greedy, Fixed Priority, Round Robin <span class="srctag agg">Campaign aggregate</span></h3>
+        <div class="note">Mean over 20 eval seeds (DQN pooled over 5 training seeds); lower is better, 1 = best. &asymp; marks a DQN result that is not statistically different from
+        a neighbouring scheduler in the ranking. Of the four, only Channel-Aware Greedy and DQN use criticality weights together with age; Fixed Priority ranks by class only; Round Robin ignores both.</div>
+        <table class="ev-table"><tr><th>scenario</th><th>metric</th>${RK.map(x => `<th>${POL_NAME[x]}</th>`).join('')}</tr>` +
+        p.ranking.map(r => {
+          const ordered = Object.keys(r.rank).sort((a, b) => r.rank[a] - r.rank[b]);
+          return `<tr><td>${PANEL_SCEN[r.scenario] || SCEN_NAME[r.scenario]}</td><td>${PANEL_METRIC[r.metric]}</td>` + RK.map(x => {
+            const nb = [ordered[r.rank[x] - 2], ordered[r.rank[x]]];   // neighbours above and below in the ranking
+            const tie = x === 'dqn' && nb.some(n => n && r.tied.includes(n)) ? ' &asymp;' : '';
+            return `<td class="${r.rank[x] === 1 ? 'win' : ''}" style="${x === 'dqn' ? 'background:rgba(56,189,248,0.08)' : ''}">#${r.rank[x]} ${pVal(r.kind, r.values[x])}${tie}</td>`; }).join('') + `</tr>`;
+        }).join('') + `</table>`;
+      h += `<h3>Headline results: significance-tested <span class="srctag agg">Campaign aggregate</span></h3>
+        <div class="note">Each row passes every rule fixed in advance: paired over 20 eval seeds with Holm-adjusted p &lt; 0.05, CI excluding zero,
+        DQN ahead on at least 15 seeds, the same for the deployed seed (training seed ${p.deployed_seed}, chosen on S0 only), and a gain of at least 10% and
+        50 ms / 2 points. Gains are absolute first, relative in brackets. Deadlines are the soft AoI thresholds (200 / 500 / 1000 ms for urgent / important / routine).</div>
+        <h3 style="font-size:0.95rem">Versus Channel-Aware Greedy, the strongest baseline</h3>
+        <table class="ev-table">${PANEL_HEAD}${panelRows(p.vs_cag.sort(order))}</table>
+        <h3 style="font-size:0.95rem">Versus Round Robin</h3>
+        <table class="ev-table">${PANEL_HEAD}${panelRows(p.vs_rr.sort(order))}</table>
+        <h3 style="font-size:0.95rem">Versus Fixed Priority</h3>
+        <table class="ev-table">${PANEL_HEAD}${panelRows(p.vs_fpq.sort(order))}</table>`;
+      h += `<h3>Tested, not claimed <span class="srctag agg">Campaign aggregate</span></h3>
+        <div class="note">Looks good pooled over the five training seeds, but fails a rule. Shown so nothing is selectively left out.</div>
+        <table class="ev-table"><tr><th>scenario</th><th>metric</th><th>vs</th><th>pooled gain</th><th>why not claimed</th></tr>` +
+        p.not_significant.sort(order).map(r => `<tr><td>${PANEL_SCEN[r.scenario]}</td><td>${PANEL_METRIC[r.metric] || 'Weighted AoI, mean'}</td>
+          <td>${POL_NAME[r.baseline]}</td><td>${r.pool_gain_pct.toFixed(0)}%</td><td style="text-align:left">${r.reason}</td></tr>`).join('') + `</table>`;
+      h += `<h3>What it costs <span class="srctag agg">Campaign aggregate</span></h3>
+        <div class="note">Statistically significant places where DQN is worse. DQN balances the classes: it gives up urgent-deadline time to Channel-Aware Greedy and Fixed Priority (which serves urgent first),
+        and important/routine deadline time to Round Robin. The S4 node-failure scenario is covered in the tables below.</div>
+        <table class="ev-table"><tr><th>scenario</th><th>metric</th><th>vs</th><th>DQN</th><th>baseline</th><th>difference</th></tr>` +
+        p.costs.sort(order).map(r => `<tr><td>${PANEL_SCEN[r.scenario]}</td><td>${PANEL_METRIC[r.metric]}</td><td>${POL_NAME[r.baseline]}</td>
+          <td>${pVal(r.kind, r.pool_dqn)}</td><td>${pVal(r.kind, r.pool_base)}</td><td class="loss">${pGain(r.kind, r.pool_gain)} worse</td></tr>`).join('') + `</table>`;
+      return h;
+    }
+
+
+    const TGT_SCEN = { T1: 'Weak links (TX -5 dBm)', T2: 'Heavy loss (TX -7 dBm)', T3: 'Far nodes (30-108 m)' };
+    const TGT_METRIC = { worst_class_miss: 'Worst-served class past its deadline', soft_exc_urgent: 'Urgent past 200 ms',
+      soft_exc_important: 'Important past 500 ms', soft_exc_routine: 'Routine past 1000 ms', cw_aoi: 'Weighted AoI (s)' };
+    async function targetedSection() {
+      let t;
+      try { t = await (await fetch('/api/targeted')).json(); } catch (e) { return ''; }
+      if (t.error) return '';
+      const cols = [['dqn', `DQN (seed ${t.deployed_seed})`], ['cag', 'Channel-Aware Greedy'], ['fpq', 'Fixed Priority'], ['rr', 'Round Robin']];
+      const fmt = (m, v) => m === 'cw_aoi' ? v.toFixed(3) : (v * 100).toFixed(1) + '%';
+      let h = `<h3>DQN's target conditions: lossy links <span class="srctag agg">Targeted ns-3 runs</span></h3>
+        <div class="note">DQN is trained to keep every sensor class inside its own freshness deadline (200 / 500 / 1000 ms), and its advantage shows on lossy links.
+        Headline metric: the share of time the worst-served class is past its deadline (lower is better). 20 fresh seeds (500-519) per scheduler, the same seeds for all.</div>`;
+      Object.keys(TGT_SCEN).forEach(sc => {
+        const M = t.means[sc]; if (!M) return;
+        h += `<h3 style="font-size:0.95rem">${TGT_SCEN[sc]}</h3><table class="ev-table"><tr><th>metric</th>${cols.map(c => `<th>${c[1]}</th>`).join('')}</tr>` +
+          TGT_METRIC_ORDER.map(m => {
+            const best = Math.min(...cols.map(c => M[c[0]][m]));
+            return `<tr><td>${TGT_METRIC[m]}</td>` + cols.map(c => `<td class="${M[c[0]][m] === best ? 'win' : ''}" style="${c[0] === 'dqn' ? 'background:rgba(56,189,248,0.08)' : ''}">${fmt(m, M[c[0]][m])}</td>`).join('') + `</tr>`;
+          }).join('') + `</table>`;
+        const cw = t.comparisons.filter(r => r.scenario === sc && r.metric === 'worst_class_miss');
+        h += `<div class="ev-grid" style="margin:6px 0 4px">` + cw.map(r => `<div class="card" style="padding:8px 10px"><div style="font-size:0.78rem;color:var(--text-muted)">vs ${POL_NAME[r.baseline]}</div>
+          <div class="win" style="font-size:1.15rem">${(r.dep_gain * 100).toFixed(1)} pts better (${r.dep_gain_pct.toFixed(0)}%)</div>
+          <div style="font-size:0.76rem;color:var(--text-muted)">${(r.dep_gain * 60).toFixed(1)} min/h less time past deadline &middot; ${r.dep_wins}/${r.dep_n} seeds &middot; 95% CI ${(r.dep_ci_lo * 100).toFixed(1)}-${(r.dep_ci_hi * 100).toFixed(1)} pts &middot; p ${r.dep_p_holm < 0.001 ? '&lt; 0.001' : r.dep_p_holm.toFixed(3)}</div></div>`).join('') + `</div>`;
+      });
+      return h;
+    }
+    const TGT_METRIC_ORDER = ['worst_class_miss', 'soft_exc_urgent', 'soft_exc_important', 'soft_exc_routine', 'cw_aoi'];
 
     async function renderEvidence() {
       const el = document.getElementById("evidencePanel");
@@ -1151,11 +1165,13 @@
       try { d = await (await fetch('/api/summary')).json(); } catch (e) { el.innerHTML = '<p>Server unreachable.</p>'; return; }
       if (d.error) { el.innerHTML = `<p>No campaign summary: <code>${d.error}</code></p>`; return; }
       evidenceLoaded = true;
-      let h = `<h3>Measured campaign: 1000 ns-3 runs <span class="srctag agg">Campaign aggregate</span></h3>
+      let h = await targetedSection();
+      h += await panelSection();
+      h += `<h3>Measured campaign: 1000 ns-3 runs <span class="srctag agg">Campaign aggregate</span></h3>
         <div class="note">${d.provenance} Bars are mean criticality-weighted AoI (lower is better); white whisker = 95% bootstrap CI.</div><div class="ev-grid">`;
       ['S0', 'S1', 'S2', 'S3', 'S4'].forEach(sc => {
         const rows = d.by_scenario.filter(r => r.scenario === sc);
-        const core = rows.filter(r => !['random', 'fpq'].includes(r.policy)).map(r => r.ci_hi);
+        const core = rows.filter(r => ['dqn', 'cag', 'rr'].includes(r.policy)).map(r => r.ci_hi);
         const mx = Math.max(...core) * 1.15;
         h += `<div class="card"><div class="card-header"><span>${SCEN_NAME[sc]}</span></div>`;
         POL_ORDER.forEach(p => {
@@ -1172,28 +1188,27 @@
 
       h += `<h3>DQN vs each baseline (paired by eval seed, 20 pairs) <span class="srctag agg">Campaign aggregate</span></h3>
         <div class="note">Relative change in cw-AoI. Negative/green = DQN lower (better). Within ±1% shown as a tie. Holm-corrected p-values are in the CSVs; with near-deterministic runs read the size, not the p.</div>
-        <table class="ev-table"><tr><th>scenario</th>${['rr', 'random', 'fpq', 'maxweight', 'cag'].map(b => `<th>vs ${POL_NAME[b]}</th>`).join('')}</tr>`;
+        <table class="ev-table"><tr><th>scenario</th>${['rr', 'fpq', 'cag'].map(b => `<th>vs ${POL_NAME[b]}</th>`).join('')}</tr>`;
       Object.keys(SCEN_NAME).forEach(sc => {
-        h += `<tr><td>${SCEN_NAME[sc]}</td>` + ['rr', 'random', 'fpq', 'maxweight', 'cag'].map(b => {
+        h += `<tr><td>${SCEN_NAME[sc]}</td>` + ['rr', 'fpq', 'cag'].map(b => {
           const r = d.paired.find(x => x.scenario === sc && x.baseline === b); return r ? relCell(r.rel_diff_pct) : '<td>—</td>'; }).join('') + `</tr>`;
       });
       h += `</table>`;
 
       const ws = d.win_stats_vs_best_heuristic;
       h += `<h3>Where DQN is strongest <span class="srctag agg">Campaign aggregate</span></h3>
-        <div class="note">DQN clearly beats Round Robin, Random and Fixed Priority in S0-S3. Against Max-Weight and CAG it is on average ${ws.mean_rel_pct > 0 ? 'worse' : 'better'} by ${Math.abs(ws.mean_rel_pct).toFixed(1)}%
-        (beats the better of the two in ${ws.n_wins}/${ws.n_runs} single runs; ${ws.n_wins_over_3pct} by more than 3%). Its safety advantage shows in worst-case urgent AoI:</div>
-        <table class="ev-table"><tr><th>worst urgent-node AoI (s), mean of 20 seeds</th>${['dqn', 'maxweight', 'cag', 'rr'].map(p => `<th>${POL_NAME[p]}</th>`).join('')}</tr>`;
+        <div class="note">On mean weighted AoI DQN clearly beats Round Robin and Fixed Priority in S0-S3. Against Channel-Aware Greedy it is slightly behind in S0, S2 and S3 and level in S1 (see the ranking above). Its tail advantage shows in worst-case urgent AoI (mean of per-run maxima):</div>
+        <table class="ev-table"><tr><th>worst urgent-node AoI (s), mean of 20 seeds</th>${['dqn', 'cag', 'rr'].map(p => `<th>${POL_NAME[p]}</th>`).join('')}</tr>`;
       ['S1', 'S2', 'S3'].forEach(sc => {
         const g = p => d.tail_safety.find(x => x.scenario === sc && x.family === p).urgent_max;
-        const best = Math.min(g('dqn'), g('maxweight'), g('cag'));
-        h += `<tr><td>${SCEN_NAME[sc]}</td>` + ['dqn', 'maxweight', 'cag', 'rr'].map(p =>
+        const best = Math.min(g('dqn'), g('cag'));
+        h += `<tr><td>${SCEN_NAME[sc]}</td>` + ['dqn', 'cag', 'rr'].map(p =>
           `<td class="${g(p) === best && p !== 'rr' ? 'win' : ''}">${g(p).toFixed(2)}</td>`).join('') + `</tr>`;
       });
       h += `</table>`;
 
       h += `<h3>DQN training seeds (mean cw-AoI) <span class="srctag agg">Campaign aggregate</span></h3>
-        <div class="note">Seed quality varies. The live demo uses one seed, chosen after seeing these results (disclosed); seeds 0 and 4 are about 10% worse than Max-Weight.</div>
+        <div class="note">Seed quality varies. The live demo uses one seed, chosen after seeing these results (disclosed); seeds 0 and 4 are noticeably worse than seeds 1-3.</div>
         <table class="ev-table"><tr><th>scenario</th>${[0, 1, 2, 3, 4].map(s => `<th>seed ${s}</th>`).join('')}</tr>` +
         d.seed_spread.map(r => { const vals = [0, 1, 2, 3, 4].map(s => r[s]); const mn = Math.min(...vals);
           return `<tr><td>${SCEN_NAME[r.scenario]}</td>` + vals.map(v => `<td class="${v === mn ? 'win' : ''}">${v.toFixed(3)}</td>`).join('') + `</tr>`; }).join('') + `</table>`;
